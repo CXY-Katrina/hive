@@ -58,6 +58,46 @@ async function workspace({ spaces = [], presets = [], initialRuns = [], canReque
   return { page, workflows, submissions, errors, actions, debugRequests };
 }
 
+test('LAN HTTP request submission uses a UUID fallback and preserves its key on retry', async () => {
+  const { page, errors } = await workspace();
+  const attempts = [];
+  try {
+    await page.evaluate(() => Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true }));
+    await page.route('**/api/requests', async route => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      const body = route.request().postDataJSON(); attempts.push(body);
+      return attempts.length === 1
+        ? route.fulfill({ status: 503, json: { detail: '请重试申请' } })
+        : route.fulfill({ status: 202, json: { id: 'debug1', spec: body.spec } });
+    });
+    await page.getByRole('button', { name: '提交申请' }).click();
+    await page.getByRole('alert').filter({ hasText: '请重试申请' }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '提交申请' }).isEnabled(), true);
+    await page.getByRole('button', { name: '提交申请' }).click();
+    await page.getByRole('status').filter({ hasText: '已登记' }).waitFor();
+    assert.equal(attempts.length, 2);
+    assert.match(attempts[0].idempotency_key, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    assert.equal(attempts[0].idempotency_key, attempts[1].idempotency_key);
+    assert.equal(await page.getByRole('button', { name: '提交申请' }).isEnabled(), true);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test('failure before the request is sent restores the submit button and shows the error', async () => {
+  const { page, errors, debugRequests } = await workspace();
+  try {
+    await page.evaluate(() => {
+      Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true });
+      Object.defineProperty(crypto, 'getRandomValues', { value: () => { throw new Error('随机编号生成失败'); }, configurable: true });
+    });
+    await page.getByRole('button', { name: '提交申请' }).click();
+    await page.getByRole('alert').filter({ hasText: '随机编号生成失败' }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '提交申请' }).isEnabled(), true);
+    assert.equal(debugRequests.length, 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 test('create a task with separate server/client environments on one resource node', async () => {
   const { page, submissions, errors } = await workspace();
   try {

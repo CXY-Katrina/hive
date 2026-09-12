@@ -20,9 +20,11 @@ export function RequestsPage({ user }: { user: User }) {
   const submission = useRef({ signature: '', key: '' });
   const submit = async (event: FormEvent) => {
     event.preventDefault(); if (busy || !canRequest) return; setBusy(true); setError(''); setNotice('');
-    const payload = { spec: { ...spec, purpose: 'debug' } }; const signature = JSON.stringify(payload);
-    if (signature !== submission.current.signature) submission.current = { signature, key: operationKey() };
-    try { const result = await post<ResourceRequest>('/requests', { ...payload, idempotency_key: submission.current.key }); setNotice(`申请 #${shortId(result.id)} 已登记。分配结果将在列表中更新。`); submission.current = { signature: '', key: '' }; void query.reload(); }
+    try {
+      const payload = { spec: { ...spec, purpose: 'debug' } }; const signature = JSON.stringify(payload);
+      if (signature !== submission.current.signature) submission.current = { signature, key: operationKey() };
+      const result = await post<ResourceRequest>('/requests', { ...payload, idempotency_key: submission.current.key }); setNotice(`申请 #${shortId(result.id)} 已登记。分配结果将在列表中更新。`); submission.current = { signature: '', key: '' }; void query.reload();
+    }
     catch (err) { setError(errorText(err)); } finally { setBusy(false); }
   };
   const confirmRelease = async () => { if (!release || busy) return; setBusy(true); setError(''); try { await post(`/requests/${release.id}/release`); setNotice('归还已提交，清理及释放核验完成后资源将重新可用。'); setRelease(undefined); void query.reload(); } catch (err) { setError(errorText(err)); } finally { setBusy(false); } };
