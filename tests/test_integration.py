@@ -70,6 +70,24 @@ class MySQLIntegration(unittest.TestCase):
         self.assertEqual(rows, [])
         rows.sort(key=lambda row: row['id'])
 
+    def test_server_model_label_and_legacy_model_both_match_resources(self):
+        from hive.domain import uid
+        from hive.inventory import model_label
+        node = self.node()
+        original = 'Atlas 800I A3 / IT22HMDA_4_S'
+        with self.db.transaction() as c:
+            c.execute("UPDATE nodes SET model=%s,generation='A3' WHERE id=%s", (original, node['id']))
+        listed = self.inventory.get(node['id'])
+        self.assertEqual(listed['model'], original)
+        self.assertEqual(listed['model_label'], 'Atlas 800I A3')
+        for model in ('Atlas 800I A3', original):
+            request = self.resources.create(self.alice, ResourceSpec(generation='A3', model=model).model_dump(), uid())
+            self.assertIsNotNone(self.resources.reserve(request['id']))
+        wrong = self.resources.create(self.alice, ResourceSpec(generation='A3', model='Atlas 800I').model_dump(), uid())
+        self.assertIsNone(self.resources.reserve(wrong['id']))
+        self.assertEqual(model_label({'model': 'Server / Custom'}), 'Server / Custom')
+        self.assertEqual(model_label({'model': 'Server / Board-X', 'metadata': {'hardware_profile': {'board_product': 'Board-X'}}}), 'Server')
+
     def test_compute_spec_requires_admin_current_soc_and_keeps_source(self):
         n = self.node()
         spec = {'compute_spec': {'fp16_tflops_per_module': 752, 'source': 'Verified vendor sheet'}}

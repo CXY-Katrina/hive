@@ -9,6 +9,17 @@ from .domain import DomainError, encode, decode, now, uid
 ASCEND_IDLE_MEMORY_TOLERANCE_BYTES = 2 * 1024**2
 
 
+def model_label(node):
+    """Display the server model without a known board product suffix."""
+    profile = (decode(node.get('metadata'), {}) or {}).get('hardware_profile') or {}
+    model = (node.get('model') or profile.get('system_product') or '').strip()
+    server, separator, board = model.rpartition('/')
+    if separator and (board.strip() == profile.get('board_product')
+                      or re.fullmatch(r'IT22HMDA_[A-Za-z0-9_]+', board.strip())):
+        return server.strip() or model
+    return model
+
+
 def idle_memory_limit(device):
     """Only an explicitly confirmed Ascend baseline permits driver jitter."""
     if not device.get("baseline_confirmed"):
@@ -105,6 +116,7 @@ class Inventory:
             by_node.setdefault(d["node_id"], []).append(d)
         for node in nodes:
             node["metadata"] = decode(node["metadata"], {})
+            node["model_label"] = model_label(node)
             profile = node['metadata'].get('hardware_profile')
             if profile and profile.get('boot_id') != node.get('boot_id'):
                 profile['quality'] = 'unknown'

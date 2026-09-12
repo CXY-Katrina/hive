@@ -18,7 +18,7 @@ export interface ComputeSpec {
 }
 export interface NodeMetadata extends Record<string, unknown> { hardware_profile?: HardwareProfile | null; compute_spec?: ComputeSpec | null }
 export interface NodeInfo {
-  id: ID; name: string; host: string; port: number; ssh_user: string; cluster_name: string; generation: string; model: string;
+  id: ID; name: string; host: string; port: number; ssh_user: string; cluster_name: string; generation: string; model: string; model_label?: string;
   status: string; reason?: string; maintenance: boolean; sampled_at?: string; metadata: NodeMetadata;
   mounts: Mount[]; devices: Device[];
 }

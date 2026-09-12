@@ -2,7 +2,7 @@ from datetime import timedelta
 from itertools import combinations, product, islice
 import hashlib
 from .domain import DomainError, SYSTEM, uid, now, encode, decode
-from .inventory import device_status
+from .inventory import device_status, model_label
 from .schemas import ResourceSpec
 
 
@@ -155,7 +155,8 @@ class ResourceService:
             candidates = []
             for n in nodes:
                 if (n["maintenance"] or n["generation"] != spec["generation"] or n["vendor"] != spec["vendor"]
-                    or n["device_kind"] != spec["device_kind"] or spec.get("model") and n["model"] != spec["model"]):
+                    or n["device_kind"] != spec["device_kind"]
+                    or spec.get("model") and spec["model"] not in (n["model"], model_label(n))):
                     continue
                 if spec.get("shared_storage_id") and not any(
                     (m.get("shared_storage_id") or m.get("candidate_id")) == spec["shared_storage_id"]

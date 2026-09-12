@@ -3,6 +3,21 @@ import { errorText, patch } from '../api';
 import type { NodeInfo } from '../types';
 import { dateTime, ErrorNotice, Field } from './ui';
 
+export function modelLabel(node: NodeInfo) {
+  if (node.model_label) return node.model_label;
+  const profile = node.metadata?.hardware_profile;
+  const model = node.model?.trim() || profile?.system_product?.trim() || '';
+  const separator = model.lastIndexOf('/');
+  const suffix = separator >= 0 ? model.slice(separator + 1).trim() : '';
+  const isBoard = suffix && (suffix === profile?.board_product?.trim() || /^IT22HMDA_[A-Za-z0-9_]+$/.test(suffix));
+  return (isBoard ? model.slice(0, separator).trim() : model) || '机型待发现';
+}
+
+export function clusterLabel(node: NodeInfo) {
+  const name = node.cluster_name?.trim() || '';
+  return ['default', '默认集群'].includes(name.toLowerCase()) ? '' : name;
+}
+
 function computeConfirmed(node: NodeInfo) {
   const profile = node.metadata?.hardware_profile;
   const spec = node.metadata?.compute_spec;
@@ -27,7 +42,6 @@ export function HardwareDetails({ node, slot }: { node: NodeInfo; slot?: string 
   const devices = profile?.devices?.filter(device => slot == null || String(device.slot) === String(slot)) || [];
   return <section className="hardware-details"><h3>硬件规格</h3><HardwareSummary node={node} /><dl className="detail-list">
     <dt>系统产品</dt><dd>{profile?.system_product || '待确认'}<small className="subline">来源：cat /sys/class/dmi/id/product_name</small></dd>
-    <dt>板卡产品</dt><dd>{profile?.board_product || '待确认'}<small className="subline">来源：npu-smi info -t board</small></dd>
     <dt>SoC version</dt><dd>{devices.length ? devices.map(device => <div key={device.slot}>设备 {device.slot}：{device.soc_version || '待确认'}{device.chip_version && <small className="subline">Chip version：{device.chip_version}</small>}</div>) : '待采集'}{profile?.source && <small className="subline">来源：{profile.source}</small>}</dd>
     <dt>规格采集时间</dt><dd>{dateTime(profile?.checked_at)}{profile?.reason && <small className="subline reason-text">{profile.reason}</small>}</dd>
     <dt>算力口径</dt><dd>{node.generation === 'A3' ? 'FP16 稠密理论峰值 / 双芯模块（非单个逻辑设备）' : '该代际的算力口径待配置'}</dd>
