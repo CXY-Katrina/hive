@@ -1,4 +1,4 @@
-/* Hive terminal workspace. Consolas + Microsoft YaHei, served locally. */
+/* Hive evergreen palette with terminal layout. Local Consolas + Microsoft YaHei. */
 @font-face {
   font-family: "Hive Latin";
   src: local("Consolas");
@@ -37,18 +37,18 @@
   font-weight: 400;
   --font-ui: "Hive Latin", "Hive Chinese", Consolas, "Microsoft YaHei", sans-serif;
   color-scheme: light;
-  color: #213d30;
-  background: #f4f7f2;
-  --green: #147a46;
-  --ink: #173e2b;
+  color: #243732;
+  background: #f5f7f5;
+  --green: #286b51;
+  --ink: #223b32;
   --muted: #62766b;
-  --border: #d7e2d8;
-  --lime: #48ed8b;
-  --sidebar: #0b1711;
-  --accent: #168c50;
+  --border: #e4eae5;
+  --lime: #c6e990;
+  --sidebar: #162b26;
+  --accent: #286b51;
   --shadow: 0 3px 0 #183e2b05;
-  --terminal: #0b1711;
-  --signal: #48ed8b;
+  --terminal: #162b26;
+  --signal: #c4e891;
   --amber: #a36a13;
 }
 * {
@@ -56,7 +56,7 @@
 }
 body {
   margin: 0;
-  background: radial-gradient(900px 400px at 85% 0%,#dbeee150,transparent 65%),linear-gradient(#17422d04 1px,transparent 1px),linear-gradient(90deg,#17422d04 1px,transparent 1px),#f4f7f2;
+  background: radial-gradient(900px 400px at 85% 0%,#eaf2e780,transparent 65%),linear-gradient(#17422d04 1px,transparent 1px),linear-gradient(90deg,#17422d04 1px,transparent 1px),#f5f7f5;
   background-size: auto,32px 32px,32px 32px,auto;
 }
 button,input,select,textarea {
@@ -77,7 +77,7 @@ a {
   text-decoration: none;
 }
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,pre:focus-visible {
-  outline: 2px solid #168c50;
+  outline: 2px solid var(--green);
   outline-offset: 3px;
 }
 input,select,textarea {
@@ -192,14 +192,14 @@ svg {
 .button.primary {
   position: relative;
   overflow: hidden;
-  background: #147a46;
+  background: #286b51;
   color: #fff;
-  border-color: #12673c;
+  border-color: #205740;
   box-shadow: 0 3px 0 #0b49262b;
 }
 .button.primary:hover {
-  background: #106739;
-  box-shadow: 0 0 0 3px #38bd741a,0 3px 0 #0b49262b;
+  background: #205740;
+  box-shadow: 0 0 0 3px #9bcd861a,0 3px 0 #0b49262b;
 }
 .button.secondary {
   background: #f9fbf7;
@@ -393,7 +393,7 @@ svg {
   color: #688d75;
 }
 .nav-link.active .nav-index {
-  color: #71b789;
+  color: #aac690;
 }
 .console-label {
   font-size: 10px;
@@ -488,9 +488,9 @@ svg {
   z-index: 20;
   display: flex;
   flex-direction: column;
-  background: radial-gradient(ellipse at 0% 100%,#1d65302e,transparent 65%),var(--terminal);
-  border-right: 1px solid #23422f;
-  color: #abc4b3;
+  background: radial-gradient(ellipse at 0 90%,#29483570,transparent 45%),var(--sidebar);
+  border-right: 1px solid #38533f;
+  color: #adc0b4;
 }
 .brand {
   display: flex;
@@ -537,17 +537,17 @@ svg {
   border: 1px solid transparent;
   transition: background .2s, color .2s, border-color .2s;
   border-radius: 3px;
-  color: #95b6a0;
+  color: #91a99b;
 }
 .nav-link:hover {
-  background: #102b1c;
-  color: #bcf5cd;
+  background: #203a30;
+  color: #d2e6d7;
 }
 .nav-link.active {
-  background: #123923;
-  color: #63f39a;
-  border: 1px solid #2b6941;
-  box-shadow: inset 2px 0 #48ed8b;
+  background: linear-gradient(100deg,#304b3a,#294538);
+  color: #d5edb5;
+  border: 1px solid #405d45;
+  box-shadow: inset 2px 0 var(--signal);
 }
 .nav-link.active svg {
   color: var(--signal);
@@ -581,8 +581,8 @@ svg {
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
-  background: #34a45b;
-  box-shadow: 0 0 0 3px #3bab6610;
+  background: #77aa57;
+  box-shadow: 0 0 0 3px #83b65714;
 }
 .sidebar-bottom>.connection-dot {
   margin-top: 5px;
@@ -726,8 +726,8 @@ footer span {
   position: relative;
   overflow: hidden;
   transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease;
-  background: #fcfefb;
-  border: 1px solid #cadbcf;
+  background: linear-gradient(155deg,#fff 55%,#fafcf7);
+  border: 1px solid var(--border);
   border-radius: 4px;
   box-shadow: 0 3px 0 #24462f06;
   padding: 20px 21px;
@@ -743,7 +743,7 @@ footer span {
   margin: 10px 0 8px;
   font-variant-numeric: tabular-nums;
   font-size: 38px;
-  color: #246841;
+  color: var(--ink);
   letter-spacing: -1.5px;
   font-weight: 700;
 }
@@ -763,8 +763,8 @@ footer span {
   border: 1px solid #d7e6d6;
 }
 .stat-card.green .stat-icon {
-  background: #e7f6e9;
-  color: #20834a;
+  background: #f1f7e7;
+  color: #7a9d46;
 }
 .stat-card.blue .stat-icon {
   background: #edf3fa;
@@ -775,7 +775,7 @@ footer span {
   color: #a57419;
 }
 .stat-card.green strong {
-  color: #16884a;
+  color: #4e7741;
 }
 .toolbar {
   display: flex;
@@ -1689,7 +1689,7 @@ tbody tr:last-child td {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: radial-gradient(ellipse at 30% 0%,#194d2b55,transparent 60%),#0b1711;
+  background: radial-gradient(ellipse at 30% 0%,#29483570,transparent 60%),var(--sidebar);
   color: #dceae0;
 }
 .login-story:before {
@@ -1732,7 +1732,7 @@ tbody tr:last-child td {
 }
 .story-copy h1 span {
   color: var(--signal);
-  text-shadow: 0 0 26px #48ed8b18;
+  text-shadow: 0 0 26px #c6e99018;
 }
 .story-copy>p {
   margin-top: 24px;
@@ -1838,26 +1838,6 @@ tbody tr:last-child td {
 }
 .stat-card.amber strong {
   color: #a06a1c;
-}
-.stat-card:first-child {
-  background: linear-gradient(130deg,#112e1e,#0b1e13);
-  border: 1px solid #235538;
-  box-shadow: 0 3px 0 #132e2314;
-}
-.stat-card:first-child::before {
-  background: var(--signal);
-}
-.stat-card:first-child strong {
-  color: var(--signal);
-  text-shadow: 0 0 20px #48ed8b20;
-}
-.stat-card:first-child>div>span,.stat-card:first-child small {
-  color: #a0bca8;
-}
-.stat-card:first-child .stat-icon {
-  background: #12341f;
-  color: #65d889;
-  border: 1px solid #2a5738;
 }
 .login-form .eyebrow {
   color: #437e4e;
@@ -2429,7 +2409,7 @@ tbody tr:last-child td {
   margin-top: 42px;
   border: 1px solid #2d573a;
   border-radius: 5px;
-  background: #08150e;
+  background: #12251e;
   box-shadow: 0 12px 30px #00000020;
   overflow: hidden;
   max-width: 510px;
@@ -2440,7 +2420,7 @@ tbody tr:last-child td {
   align-items: center;
   padding: 10px 13px;
   border-bottom: 1px solid #24432e;
-  background: #102317;
+  background: #203a30;
 }
 .terminal-bar i {
   width: 7px;
@@ -2471,13 +2451,13 @@ tbody tr:last-child td {
 }
 .terminal-line strong {
   display: block;
-  color: #6cdb92;
+  color: #d5edb5;
   font-size: 12px;
   font-weight: 400;
 }
 .terminal-line strong::before {
   content: '> ';
-  color: #43ed86;
+  color: var(--signal);
 }
 .terminal-line small {
   display: block;
