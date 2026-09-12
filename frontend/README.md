@@ -10,7 +10,9 @@ npm run build
 
 开发服务将 `/api` 代理到 `127.0.0.1:8000`；开发时后端 `HIVE_ORIGIN` 须与浏览器地址一致。生产由中心 API 提供 `dist/` 静态产物，同源 Cookie 会话。请先在项目根目录按主 README 配置 MySQL 与 API。
 
-页面：`/login`、`/clusters`、`/nodes/`（及 `/nodes/:id`）、`/requests`、`/tasks`。页面直接读取 API，无演示节点或模拟运行数据。
+当前展示页面：`/login`、`/clusters`、`/nodes/`（及 `/nodes/:id`）、`/requests`。任务中心暂时隐藏，`/tasks` 及子路径重定向到 `/nodes/`；TasksPage 源码保留但不在当前页面入口导入。页面直接读取 API，无演示节点或模拟运行数据。
+
+视觉使用浅色底、青蓝/紫色细线与网格装饰，参考 [vLLM Commit Monitor](https://vllm-ascend.github.io/vllm-report/) 的等宽标签与紧凑数据面板。中文为微软雅黑、英文/数字为 Consolas；字体从本机加载，不下载外部字体资源。动画遵守系统的减少动态效果偏好。
 
 - `api.ts`：统一同源请求、错误与会话过期处理。
 - `hooks.ts`：可取消轮询、隐藏页面暂停、恢复可见时更新，以及轻量路径导航。

@@ -6,44 +6,176 @@ import { ErrorNotice, Icon, Link, Loading } from './components/ui';
 import { NodesPage } from './pages/NodesPage';
 import { ClustersPage } from './pages/ClustersPage';
 import { RequestsPage } from './pages/RequestsPage';
-import { TasksPage } from './pages/TasksPage';
 
-const navigation = [{ path: '/nodes/', label: '实时信息', icon: 'nodes' }, { path: '/clusters', label: '集群管理', icon: 'server' }, { path: '/requests', label: '机器申请', icon: 'request' }, { path: '/tasks', label: '任务中心', icon: 'task' }];
+const navigation = [
+  { path: '/nodes/', label: '实时信息', icon: 'nodes' },
+  { path: '/clusters', label: '集群管理', icon: 'server' },
+  { path: '/requests', label: '机器申请', icon: 'request' },
+];
+
+// Keep the task implementation available for a later release, without exposing
+// its page, navigation or login return target in the current workspace.
+function workspacePath(path: string) {
+  return path === '/' || path === '/login' || /^\/tasks(?:\/|$)/.test(path) ? '/nodes/' : path;
+}
 
 export default function App() {
   const path = usePath();
   const [user, setUser] = useState<User | null>();
   const [error, setError] = useState('');
-  const initialPath = useRef(path === '/login' || path === '/' ? '/nodes/' : path);
+  const initialPath = useRef(workspacePath(path));
+
   const loadSession = async () => {
     setError('');
     try { setUser(await api<User>('/session')); }
-    catch (err) { if (err instanceof ApiError && err.status === 401) setUser(null); else setError(errorText(err)); }
+    catch (err) {
+      if (err instanceof ApiError && err.status === 401) setUser(null);
+      else setError(errorText(err));
+    }
   };
+
   useEffect(() => { void loadSession(); }, []);
   useEffect(() => {
-    const expire = () => { initialPath.current = window.location.pathname; setUser(null); navigate('/login'); };
+    const expire = () => {
+      initialPath.current = workspacePath(window.location.pathname);
+      setUser(null);
+      navigate('/login', true);
+    };
     window.addEventListener('hive:session-expired', expire);
     return () => window.removeEventListener('hive:session-expired', expire);
   }, []);
-  useEffect(() => { if (user === null && path !== '/login') navigate('/login'); if (user && (path === '/' || path === '/login')) navigate(initialPath.current); }, [user, path]);
-  const logout = async () => { setError(''); try { await api('/session', { method: 'DELETE' }); initialPath.current = '/nodes/'; setUser(null); } catch (err) { setError(errorText(err)); } };
-  if (user === undefined) return <div className="boot"><img src="/hive.svg" alt="" /><h1>Hive</h1>{error ? <ErrorNotice text={error} retry={() => void loadSession()} /> : <Loading />}</div>;
-  if (!user) return <Login onLogin={value => { setUser(value); navigate(initialPath.current); }} />;
+  useEffect(() => {
+    if (user === null && path !== '/login') navigate('/login', true);
+    if (user && (path === '/' || path === '/login')) navigate(initialPath.current, true);
+    else if (user && workspacePath(path) !== path) navigate(workspacePath(path), true);
+  }, [user, path]);
+
+  const logout = async () => {
+    setError('');
+    try {
+      await api('/session', { method: 'DELETE' });
+      initialPath.current = '/nodes/';
+      setUser(null);
+    } catch (err) { setError(errorText(err)); }
+  };
+
+  if (user === undefined) {
+    return <div className="boot">
+      <img src="/hive.svg" alt="" /><h1>Hive</h1>
+      {error ? <ErrorNotice text={error} retry={() => void loadSession()} /> : <Loading />}
+    </div>;
+  }
+  if (!user) return <Login onLogin={value => { setUser(value); navigate(initialPath.current, true); }} />;
+
   const active = navigation.find(item => path.startsWith(item.path.replace(/\/$/, '')));
-  return <div className="app-shell"><aside className="sidebar"><Link to="/nodes/" className="brand"><img src="/hive.svg" alt="" /><span>Hive<small>NPU RESOURCE PLATFORM</small></span></Link><div className="nav-caption">工作空间</div><nav aria-label="主导航">{navigation.map(item => <Link key={item.path} to={item.path} label={item.label} className={`nav-link ${active?.path === item.path ? 'active' : ''}`}><Icon name={item.icon} /><span>{item.label}</span>{active?.path === item.path && <span className="nav-dot" />}</Link>)}</nav><div className="sidebar-bottom"><span className="connection-dot" /><div>中心管理 · SSH<small>轻量连接每一份算力</small></div><span className="version">v0.1</span></div></aside><div className="main-shell"><header className="topbar"><div className="breadcrumb">工作空间<Icon name="chevron" size={14} /><span>{active?.label || '页面'}</span></div><div className="user-menu"><span className="avatar">{Array.from(user.username)[0]}</span><div><strong>{user.username}</strong><small>{user.admin ? '管理员' : '协作成员'}</small></div><button className="icon-button" onClick={() => void logout()} title="退出登录" aria-label="退出登录"><Icon name="logout" size={18} /></button></div></header><main><ErrorNotice text={error} />{path.startsWith('/nodes') ? <NodesPage nodeId={path.split('/').filter(Boolean)[1]} /> : path.startsWith('/clusters') ? <ClustersPage user={user} /> : path.startsWith('/requests') ? <RequestsPage user={user} /> : path.startsWith('/tasks') ? <TasksPage user={user} /> : <div className="panel empty"><h1>页面不存在</h1><Link to="/nodes/">返回实时信息</Link></div>}</main><footer>HIVE <span>让资源清晰，让协作有序。</span></footer></div></div>;
+  return <div className="app-shell">
+    <aside className="sidebar">
+      <Link to="/nodes/" className="brand">
+        <img src="/hive.svg" alt="" />
+        <span>Hive<small>NPU RESOURCE PLATFORM</small></span>
+      </Link>
+      <div className="nav-caption">WORKSPACE / 工作空间</div>
+      <nav aria-label="主导航">
+        {navigation.map((item, index) =>
+          <Link key={item.path} to={item.path} label={item.label}
+            className={`nav-link ${active?.path === item.path ? 'active' : ''}`}>
+            <Icon name={item.icon} /><span>{item.label}</span>
+            <small className="nav-index" aria-hidden="true">0{index + 1}</small>
+            {active?.path === item.path && <span className="nav-dot" />}
+          </Link>
+        )}
+      </nav>
+      <div className="sidebar-bottom">
+        <span className="connection-dot" aria-hidden="true" />
+        <div>CLUSTER WORKSPACE<small>资源协作终端</small></div>
+        <span className="version">v0.1</span>
+      </div>
+    </aside>
+    <div className="main-shell">
+      <header className="topbar">
+        <div className="breadcrumb">工作空间<Icon name="chevron" size={14} /><span>{active?.label || '页面'}</span></div>
+        <span className="console-label" aria-hidden="true">HIVE // CONSOLE</span>
+        <div className="user-menu">
+          <span className="avatar">{Array.from(user.username)[0]}</span>
+          <div><strong>{user.username}</strong><small>{user.admin ? '管理员' : '协作成员'}</small></div>
+          <button className="icon-button" onClick={() => void logout()} title="退出登录" aria-label="退出登录">
+            <Icon name="logout" size={18} />
+          </button>
+        </div>
+      </header>
+      <main>
+        <ErrorNotice text={error} />
+        {path.startsWith('/nodes') ? <NodesPage nodeId={path.split('/').filter(Boolean)[1]} />
+          : path.startsWith('/clusters') ? <ClustersPage user={user} />
+          : path.startsWith('/requests') ? <RequestsPage user={user} />
+          : workspacePath(path) !== path ? <Loading />
+          : <div className="panel empty"><h1>页面不存在</h1><Link to="/nodes/">返回实时信息</Link></div>}
+      </main>
+      <footer>HIVE / RESOURCE NETWORK<span>让资源清晰，让协作有序。</span></footer>
+    </div>
+  </div>;
 }
 
 function Login({ onLogin }: { onLogin: (user: User) => void }) {
   const [username, setUsername] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
   const submit = async (event: FormEvent) => {
-    event.preventDefault(); if (busy) return;
-    if (!username.trim() || /[\u0000-\u001f\u007f]/.test(username)) { setError('请输入有效的用户名。'); return; }
+    event.preventDefault();
+    if (busy) return;
+    if (!username.trim() || /[\u0000-\u001f\u007f]/.test(username)) {
+      setError('请输入有效的用户名。');
+      return;
+    }
     setBusy(true); setError('');
     try { onLogin(await post<User>('/session', { username: username.trim() })); }
-    catch (err) { setError(errorText(err)); } finally { setBusy(false); }
+    catch (err) { setError(errorText(err)); }
+    finally { setBusy(false); }
   };
-  return <div className="login-page"><section className="login-story"><a className="brand" href="/login"><img src="/hive.svg" alt="" /><span>Hive<small>NPU RESOURCE PLATFORM</small></span></a><div className="story-copy"><span className="eyebrow">一个工作台，连接集群与团队</span><h1>算力就绪。<br /><span>专注下一次突破。</span></h1><p>查看每张卡的实时状态，申请所需资源，<br />将任务交给集群执行。</p><div className="node-art" aria-hidden="true">{['A2', 'A3', 'A5'].map((item, index) => <div className={`art-node art-${index}`} key={item}><span><Icon name="chip" /> ASCEND {item}</span><div>{Array.from({ length: 8 }, (_, i) => <i key={i} />)}</div><small>HIVE / COMPUTE NODE</small></div>)}</div></div><p className="story-footer">少一些环境摩擦，多一些有效计算。</p></section><section className="login-form-area"><form className="login-form" onSubmit={event => void submit(event)}><span className="eyebrow">欢迎来到 HIVE</span><h2>进入工作空间</h2><p>使用你的用户名，记录每一次资源申请与任务。</p><label className="field"><span>用户名</span><div className="input-icon"><Icon name="user" /><input autoFocus autoComplete="username" required maxLength={64} value={username} onChange={event => setUsername(event.target.value)} placeholder="请输入你的用户名" /></div></label><ErrorNotice text={error} /><button className="button primary login-submit" disabled={busy}>{busy ? '正在进入…' : '进入平台'}<Icon name="arrow" size={18} /></button><p className="login-note">无需密码。请使用团队可识别的固定用户名。<br />用户名用于协作登记，不验证真实身份。</p></form><span className="login-copyright">Hive · 团队 NPU 资源工作台</span></section></div>;
+
+  return <div className="login-page">
+    <section className="login-story">
+      <a className="brand" href="/login">
+        <img src="/hive.svg" alt="" />
+        <span>Hive<small>NPU RESOURCE PLATFORM</small></span>
+      </a>
+      <div className="story-copy">
+        <span className="eyebrow">YOUR NEXT COMPUTE / 算力协作空间</span>
+        <h1>连接算力。<br /><span>即刻进入状态。</span></h1>
+        <p>看见每张卡的实时状态，<br />为下一次探索，找到合适的资源。</p>
+        <div className="node-art" aria-hidden="true">
+          {['A2', 'A3', 'A5'].map((item, index) =>
+            <div className={`art-node art-${index}`} key={item}>
+              <span><Icon name="chip" /> ASCEND {item}</span>
+              <div>{Array.from({ length: 8 }, (_, i) => <i key={i} />)}</div>
+              <small>HIVE / COMPUTE NODE</small>
+            </div>
+          )}
+        </div>
+      </div>
+      <p className="story-footer">COMPUTE TOGETHER<span>让每一份算力，各就其位。</span></p>
+    </section>
+    <section className="login-form-area">
+      <form className="login-form" onSubmit={event => void submit(event)}>
+        <span className="eyebrow">ACCESS / 欢迎来到 HIVE</span>
+        <h2>进入工作空间</h2>
+        <p>使用你的用户名，记录每一次资源申请。</p>
+        <label className="field">
+          <span>用户名</span>
+          <div className="input-icon">
+            <Icon name="user" />
+            <input autoFocus autoComplete="username" required maxLength={64} value={username}
+              onChange={event => setUsername(event.target.value)} placeholder="请输入你的用户名" />
+          </div>
+        </label>
+        <ErrorNotice text={error} />
+        <button className="button primary login-submit" disabled={busy}>
+          {busy ? '正在进入…' : '进入平台'}<Icon name="arrow" size={18} />
+        </button>
+        <p className="login-note">无需密码。请使用团队可识别的固定用户名。<br />用户名用于协作登记，不验证真实身份。</p>
+      </form>
+      <span className="login-copyright">Hive · 团队 NPU 资源工作台</span>
+    </section>
+  </div>;
 }
