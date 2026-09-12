@@ -7,9 +7,19 @@ export interface Device {
   request_id?: ID | null; status: string; protected_until?: string | null; extensions?: Record<string, number | null>;
 }
 export interface Mount { target?: string; path?: string; source?: string; fstype?: string; status?: string; shared_storage_id?: string; total_bytes?: number; available_bytes?: number; free_bytes?: number; writable?: boolean; readable?: boolean; reason?: string; detail?: string; checked_at?: string }
+export interface HardwareProfile {
+  system_product: string | null; board_product: string | null; soc_versions: string[];
+  devices: { slot: string | number; soc_version: string | null; chip_version: string | null }[];
+  quality: 'ok' | 'partial' | 'unknown'; checked_at: string; source: string; reason?: string;
+}
+export interface ComputeSpec {
+  fp16_tflops_per_module: number; basis: 'FP16 dense, dual-die module'; source: string;
+  updated_at: string; confirmed_soc_versions: string[];
+}
+export interface NodeMetadata extends Record<string, unknown> { hardware_profile?: HardwareProfile | null; compute_spec?: ComputeSpec | null }
 export interface NodeInfo {
   id: ID; name: string; host: string; port: number; ssh_user: string; cluster_name: string; generation: string; model: string;
-  status: string; reason?: string; maintenance: boolean; sampled_at?: string; metadata: Record<string, unknown>;
+  status: string; reason?: string; maintenance: boolean; sampled_at?: string; metadata: NodeMetadata;
   mounts: Mount[]; devices: Device[];
 }
 export interface ResourceSpec { generation: string; model: string; mode: 'partial' | 'whole'; machine_count: number; cards_per_node: number; min_memory_gib: number; require_interconnect: boolean; queue: boolean; wait_minutes: number; note?: string }

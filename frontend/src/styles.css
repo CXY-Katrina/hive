@@ -2458,3 +2458,27 @@ tbody tr:last-child td {
     box-shadow: var(--shadow);
   }
 }
+.hardware-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 18px;
+  margin-top: 9px;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.hardware-summary > span { display: block; }
+.hardware-summary small { color: var(--muted); font-size: 11px; }
+.inventory-table .hardware-summary { display: grid; gap: 3px; }
+.hardware-details { margin-bottom: 24px; padding-bottom: 18px; border-bottom: 1px solid var(--border); }
+.hardware-details .detail-list { margin-top: 15px; }
+.hardware-details dd { overflow-wrap: anywhere; }
+.compute-spec-editor { padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+.compute-spec-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+@media (max-width: 600px) {
+  .node-heading { flex-direction: column; align-items: stretch; }
+  .node-identity { align-items: flex-start; }
+  .node-icon { flex-shrink: 0; }
+  .node-heading-right { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .node-heading-right small { margin-top: 0; }
+}

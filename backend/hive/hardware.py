@@ -224,6 +224,10 @@ class AscendAdapter:
     def __init__(self, transport):
         self.transport = transport
 
+    def describe_hardware(self, node):
+        from .hardware_profile import AscendHardwareProfile
+        return AscendHardwareProfile(self.transport).collect(node)
+
     def collect(self, node):
         boot, samples = '', {}
         try:

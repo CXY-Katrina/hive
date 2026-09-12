@@ -319,6 +319,10 @@ class AdmissionProbe:
 
     def run(self, node_id):
         node = self.inventory.connection(node_id)
+        adapter = self.adapters.get(node.get('adapter', 'ascend'))
+        describe = getattr(adapter, 'describe_hardware', None)
+        if callable(describe):
+            self.inventory.record_probe(node_id, metadata={'hardware_profile': describe(node)})
         peers = [peer for peer in self.inventory.list_nodes()
                  if peer['id'] != node_id and peer.get('cluster_name') == node.get('cluster_name')]
         connections = {node_id: node}

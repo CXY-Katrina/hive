@@ -70,6 +70,27 @@ class MySQLIntegration(unittest.TestCase):
         self.assertEqual(rows, [])
         rows.sort(key=lambda row: row['id'])
 
+    def test_compute_spec_requires_admin_current_soc_and_keeps_source(self):
+        n = self.node()
+        spec = {'compute_spec': {'fp16_tflops_per_module': 752, 'source': 'Verified vendor sheet'}}
+        with self.assertRaises(DomainError): self.inventory.update(n['id'], self.alice, spec)
+        with self.assertRaises(DomainError): self.inventory.update(n['id'], self.admin, spec)
+        with self.db.transaction() as c:
+            c.execute("UPDATE nodes SET generation='A3' WHERE id=%s", (n['id'],))
+        self.inventory.record_probe(n['id'], metadata={'hardware_profile': {
+            'quality': 'ok', 'soc_versions': ['Ascend910_9362'], 'boot_id': n['boot_id']}})
+        updated = self.inventory.update(n['id'], self.admin, spec)
+        confirmed = updated['metadata']['compute_spec']
+        self.assertEqual(confirmed['fp16_tflops_per_module'], 752)
+        self.assertEqual(confirmed['confirmed_soc_versions'], ['Ascend910_9362'])
+        self.assertEqual(confirmed['source'], 'Verified vendor sheet')
+        with self.db.transaction() as c:
+            c.execute("UPDATE nodes SET boot_id='changed' WHERE id=%s", (n['id'],))
+        self.assertEqual(self.inventory.get(n['id'])['metadata']['hardware_profile']['quality'], 'unknown')
+        with self.assertRaises(DomainError): self.inventory.update(n['id'], self.admin, spec)
+        updated = self.inventory.update(n['id'], self.admin, {'clear_compute_spec': True})
+        self.assertNotIn('compute_spec', updated['metadata'])
+
     def request(self,actor=None,**kwargs):
         spec=ResourceSpec(generation="A2",**kwargs).model_dump()
         from hive.domain import uid

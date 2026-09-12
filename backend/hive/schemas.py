@@ -25,11 +25,31 @@ class NodeCreate(Input):
     cluster_name: str = Field(default="default", min_length=1, max_length=128)
 
 
+class ComputeSpec(Input):
+    fp16_tflops_per_module: float = Field(gt=0, le=1000000, allow_inf_nan=False)
+    source: str = Field(min_length=1, max_length=512)
+
+    @field_validator('source')
+    @classmethod
+    def nonempty_source(cls, value):
+        if not value.strip():
+            raise ValueError('请填写算力规格来源')
+        return value.strip()
+
+
 class NodeUpdate(Input):
     maintenance: bool | None = None
     password: str | None = Field(default=None, min_length=1, max_length=4096)
     ssh_user: str | None = Field(default=None, pattern=r"^[a-z_][a-z0-9_-]{0,63}$")
     hccn_ids: dict[str, int] | None = None
+    compute_spec: ComputeSpec | None = None
+    clear_compute_spec: bool = False
+
+    @model_validator(mode='after')
+    def one_compute_action(self):
+        if self.clear_compute_spec and self.compute_spec:
+            raise ValueError('不能同时登记和清除算力规格')
+        return self
 
     @field_validator("hccn_ids")
     @classmethod

@@ -105,6 +105,10 @@ class Inventory:
             by_node.setdefault(d["node_id"], []).append(d)
         for node in nodes:
             node["metadata"] = decode(node["metadata"], {})
+            profile = node['metadata'].get('hardware_profile')
+            if profile and profile.get('boot_id') != node.get('boot_id'):
+                profile['quality'] = 'unknown'
+                profile['reason'] = '节点已重启，等待重新核验 SoC'
             node["mounts"] = decode(node["mounts"], [])
             node["devices"] = by_node.get(node["id"], [])
             if not node["sampled_at"] or (now() - node["sampled_at"]).total_seconds() > self.settings.stale_seconds:
@@ -132,9 +136,22 @@ class Inventory:
     def update(self, node_id, actor, payload):
         self.require_admin(actor)
         with self.db.transaction() as c:
-            c.execute("SELECT id FROM nodes WHERE id=%s FOR UPDATE", (node_id,))
-            if not c.fetchone():
+            c.execute("SELECT id,metadata,generation,boot_id FROM nodes WHERE id=%s FOR UPDATE", (node_id,))
+            current_node = c.fetchone()
+            if not current_node:
                 raise DomainError("节点不存在", 404)
+            if payload.get('compute_spec'):
+                from .schemas import ComputeSpec
+                spec = ComputeSpec.model_validate(payload['compute_spec']).model_dump()
+                profile = (decode(current_node['metadata'], {}) or {}).get('hardware_profile', {})
+                if (current_node['generation'] != 'A3' or profile.get('quality') != 'ok'
+                    or not profile.get('soc_versions') or profile.get('boot_id') != current_node['boot_id']):
+                    raise DomainError('请先完成 A3 节点的 SoC 检测，再登记双芯模块算力', 422)
+                spec.update(basis='FP16 dense, dual-die module', source=spec['source'].strip(),
+                            confirmed_soc_versions=profile['soc_versions'], updated_at=str(now()))
+                c.execute("UPDATE nodes SET metadata=JSON_SET(COALESCE(metadata,JSON_OBJECT()),'$.compute_spec',CAST(%s AS JSON)) WHERE id=%s", (encode(spec), node_id))
+            elif payload.get('clear_compute_spec'):
+                c.execute("UPDATE nodes SET metadata=JSON_REMOVE(COALESCE(metadata,JSON_OBJECT()),'$.compute_spec') WHERE id=%s", (node_id,))
             if "maintenance" in payload:
                 c.execute("UPDATE nodes SET maintenance=%s WHERE id=%s", (payload["maintenance"], node_id))
             if payload.get("password"):
