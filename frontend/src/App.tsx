@@ -86,7 +86,7 @@ export default function App() {
         )}
       </nav>
       <div className="sidebar-bottom">
-        <span className="connection-dot" aria-hidden="true" />
+        <Icon name="task" size={15} />
         <div>CLUSTER WORKSPACE<small>资源协作终端</small></div>
         <span className="version">v0.1</span>
       </div>
@@ -94,7 +94,7 @@ export default function App() {
     <div className="main-shell">
       <header className="topbar">
         <div className="breadcrumb">工作空间<Icon name="chevron" size={14} /><span>{active?.label || '页面'}</span></div>
-        <span className="console-label" aria-hidden="true">HIVE // CONSOLE</span>
+        <span className="console-label" aria-hidden="true">[ HIVE / RESOURCE CONSOLE ]</span>
         <div className="user-menu">
           <span className="avatar">{Array.from(user.username)[0]}</span>
           <div><strong>{user.username}</strong><small>{user.admin ? '管理员' : '协作成员'}</small></div>
@@ -144,14 +144,13 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
         <span className="eyebrow">YOUR NEXT COMPUTE / 算力协作空间</span>
         <h1>连接算力。<br /><span>即刻进入状态。</span></h1>
         <p>看见每张卡的实时状态，<br />为下一次探索，找到合适的资源。</p>
-        <div className="node-art" aria-hidden="true">
-          {['A2', 'A3', 'A5'].map((item, index) =>
-            <div className={`art-node art-${index}`} key={item}>
-              <span><Icon name="chip" /> ASCEND {item}</span>
-              <div>{Array.from({ length: 8 }, (_, i) => <i key={i} />)}</div>
-              <small>HIVE / COMPUTE NODE</small>
-            </div>
-          )}
+        <div className="terminal-art" aria-hidden="true">
+          <div className="terminal-bar"><i /><i /><i /><span>hive / resource-workspace</span></div>
+          <div className="terminal-lines">
+            <div className="terminal-line"><strong>01 / OBSERVE · 实时节点</strong><small>SoC version / AI Core / HBM</small></div>
+            <div className="terminal-line"><strong>02 / REQUEST · 资源申请</strong><small>整机或部分卡 · 多机互联</small></div>
+            <div className="terminal-line"><strong>03 / CONNECT · 开始协作</strong><small>SSH 连接 · 共享工作空间</small></div>
+          </div>
         </div>
       </div>
       <p className="story-footer">COMPUTE TOGETHER<span>让每一份算力，各就其位。</span></p>
