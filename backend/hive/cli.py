@@ -8,8 +8,8 @@ from .config import Settings
 def main():
     parser=argparse.ArgumentParser(prog="hive")
     parser.add_argument("command",choices=["keygen","migrate","api","worker"])
-    parser.add_argument("--host",default="127.0.0.1")
-    parser.add_argument("--port",type=int,default=8000)
+    parser.add_argument("--host",default="0.0.0.0")
+    parser.add_argument("--port",type=int,default=18000)
     parser.add_argument("--env-file",default=".env")
     parser.add_argument("--ssl-certfile")
     parser.add_argument("--ssl-keyfile")

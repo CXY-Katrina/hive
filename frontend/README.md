@@ -8,7 +8,7 @@ npm run dev
 npm run build
 ```
 
-开发服务将 `/api` 代理到 `127.0.0.1:8000`；开发时后端 `HIVE_ORIGIN` 须与浏览器地址一致。生产由中心 API 提供 `dist/` 静态产物，同源 Cookie 会话。请先在项目根目录按主 README 配置 MySQL 与 API。
+开发服务将 `/api` 代理到 `127.0.0.1:18000`；开发时后端 `HIVE_ORIGIN` 须与浏览器地址一致。部署页面统一使用中心 API 的 `18000` 端口提供 `dist/` 静态产物，同源 Cookie 会话。请先在项目根目录按主 README 配置 MySQL 与 API。
 
 当前展示页面：`/login`、`/clusters`、`/nodes/`（及 `/nodes/:id`）、`/requests`。任务中心暂时隐藏，`/tasks` 及子路径重定向到 `/nodes/`；TasksPage 源码保留但不在当前页面入口导入。页面直接读取 API，无演示节点或模拟运行数据。
 

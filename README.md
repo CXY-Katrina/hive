@@ -49,19 +49,37 @@
 4. 分别运行 API 和 worker：
 
    ```bash
-   hive api --host 127.0.0.1 --port 8000
+   hive api --host 0.0.0.0 --port 18000
    hive worker
    ```
 
-   浏览器访问 http://127.0.0.1:8000/login。首次只需输入用户名；默认管理员登记名为 `admin`，由 HIVE_ADMIN_USERS 配置。用户名是协作登记，不验证实际身份。worker 必须运行才能采集、分配、执行任务和回收。
+   页面与 API 统一部署在 **18000** 端口，CLI 默认监听 `0.0.0.0:18000`。浏览器访问 `http://中心机IP:18000/login`，HIVE_ORIGIN 填同一地址的来源（不含 `/login`）。首次只需输入用户名；默认管理员登记名为 `admin`，由 HIVE_ADMIN_USERS 配置。用户名是协作登记，不验证实际身份。worker 必须运行才能采集、分配、执行任务和回收。
 
-   本机 HTTP 开发将 HIVE_COOKIE_SECURE=false、HIVE_ORIGIN=http://127.0.0.1:8000；生产使用 HTTPS、HIVE_COOKIE_SECURE=true，HIVE_ORIGIN 填浏览器实际地址。API 可直接启用 TLS：
+   HTTP 调试将 HIVE_COOKIE_SECURE=false；生产使用 HTTPS、HIVE_COOKIE_SECURE=true，HIVE_ORIGIN 填浏览器实际地址。API 可直接启用 TLS，仍使用 18000：
 
    ```bash
-   hive api --host 0.0.0.0 --port 8443 --ssl-certfile /path/server.crt --ssl-keyfile /path/server.key
+   hive api --host 0.0.0.0 --port 18000 --ssl-certfile /path/server.crt --ssl-keyfile /path/server.key
    ```
 
-   如需前端热更新，执行 `npm run dev`；Vite 代理 API 到 8000，HIVE_ORIGIN 改为浏览器使用的开发地址。中心机 systemd 示例见 [deploy](deploy/hive-api.service) 和 [worker 配置](deploy/hive-worker.service)，按实际安装目录、用户和 TLS 方式调整。密钥/配置文件限制为运行用户可读，并独立备份主密钥。
+   如需前端热更新，执行 `npm run dev`；Vite 代理 API 到 18000，HIVE_ORIGIN 改为浏览器使用的开发地址。Vite 仅用于开发，部署始终由 API 在 18000 提供构建后的页面。中心机 systemd 示例见 [deploy](deploy/hive-api.service) 和 [worker 配置](deploy/hive-worker.service)，按实际安装目录、用户和 TLS 方式调整。密钥/配置文件限制为运行用户可读，并独立备份主密钥。
+
+### 当前 Windows 中心机：Wi-Fi 访问
+
+在项目根目录执行以下脚本启动或重启 API，自动读取 `WLAN` 的 IPv4 地址并同步 `data/preview.env` 的 HIVE_ORIGIN / HTTP Cookie 配置，固定监听 `0.0.0.0:18000`。worker 不受影响；18000 若被其他程序占用则报错，不终止其他程序。
+
+```powershell
+.\scripts\start-api.ps1
+```
+
+脚本输出本机与其他 Wi-Fi 设备应统一使用的页面地址。Wi-Fi IP 发生变化时重新执行；可用 `-EnvFile .env` 指定其他配置文件，或 `-InterfaceAlias` 指定网卡名称。它启动隐藏后台进程，不配置开机自启；日志保存在 `data/api.out.log` / `data/api.err.log`。
+
+首次开放端口，在**管理员 PowerShell**中执行一次：
+
+```powershell
+.\scripts\enable-wifi-access.ps1
+```
+
+此脚本只维护 `Hive-WiFi-TCP-18000` 防火墙规则：Wi-Fi 接口、TCP 18000、来源 LocalSubnet，兼容 Windows 将当前 Wi-Fi 标记为公用网络的情况。不会关闭防火墙或开放 MySQL。页面能打开但不能登录时，先检查访问地址是否与 HIVE_ORIGIN 一致；端口不通时检查路由器是否启用了无线客户端隔离。
 
 ## 纳管节点
 
