@@ -3,6 +3,8 @@ import re
 
 from .domain import DomainError, now
 from .hardware import PREAMBLE, required, sections
+from .ascend_dmi import DMI_PREAMBLE, tool_profile
+from .host_system import host_system
 
 
 def fields(text):
@@ -39,6 +41,9 @@ class AscendHardwareProfile:
         profile = {'system_product': None, 'board_product': None, 'soc_versions': [], 'devices': [],
                    'quality': 'unknown', 'reason': None, 'checked_at': str(now()), 'boot_id': node.get('boot_id'),
                    'source': 'DMI product_name; npu-smi info -t board -i <NPU ID> [-c <Chip ID>]'}
+        profile['host_system'] = host_system({}, profile['checked_at'])
+        # A failed SSH query is not evidence that the tool is uninstalled.
+        profile['ascend_dmi'] = None
         devices = node.get('devices', [])
         if not devices or len(devices) > 128:
             profile['reason'] = 'Complete device inventory required'
@@ -48,12 +53,20 @@ class AscendHardwareProfile:
                 if not all(re.fullmatch(r'[0-9]+', str(device[key])) for key in ('command_id', 'chip_id')):
                     raise ValueError('Invalid hardware query device identity')
             first = devices[0]['command_id']
-            script = PREAMBLE + ('emit system cat /sys/class/dmi/id/product_name\n'
+            script = DMI_PREAMBLE + ('emit boot cat /proc/sys/kernel/random/boot_id\n'
+                      'emit uname uname -a\nemit machine uname -m\n'
+                      'emit dmi_path printf "%s" "$HIVE_ASCEND_DMI"\n'
+                      'emit dmi_version timeout 5 "$HIVE_ASCEND_DMI" --version\n'
+                      'emit system cat /sys/class/dmi/id/product_name\n'
                       f'emit board timeout 3 npu-smi info -t board -i {first}\nprintf "HIVE_END\\n"\n')
-            result = self.transport.run(node, script, timeout=10)
+            result = self.transport.run(node, script, timeout=15)
             if result.code:
                 raise ValueError('Hardware product query incomplete')
             product = sections(result.stdout)
+            if required(product, 'boot').strip() != node.get('boot_id'):
+                raise ValueError('Node rebooted before hardware identity query')
+            profile['host_system'] = host_system(product, profile['checked_at'])
+            profile['ascend_dmi'] = tool_profile(product, profile['checked_at'])
             if product.get('system', (1, ''))[0] == 0:
                 profile['system_product'] = product['system'][1].strip()[:128] or None
             if product.get('board', (1, ''))[0] == 0:

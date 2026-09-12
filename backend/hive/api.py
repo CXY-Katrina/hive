@@ -97,6 +97,10 @@ def create_app(services=None, settings=None):
     def credentials(node_id: str, actor=Depends(current)):
         return respond(services.inventory.credentials(node_id,actor))
 
+    @app.post("/api/nodes/{node_id}/compute-benchmark")
+    def compute_benchmark(node_id: str, actor=Depends(current)):
+        return respond(services.compute_benchmark.request(node_id,actor),202)
+
     @app.post("/api/devices/{device_id}/baseline")
     def baseline(device_id: str, actor=Depends(current)):
         services.inventory.confirm_baseline(device_id,actor)

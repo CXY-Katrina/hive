@@ -121,6 +121,10 @@ class Inventory:
             if profile and profile.get('boot_id') != node.get('boot_id'):
                 profile['quality'] = 'unknown'
                 profile['reason'] = '节点已重启，等待重新核验 SoC'
+                if profile.get('host_system'):
+                    profile['host_system'].update(quality='unknown', reason='节点已重启，等待重新采集 uname')
+                if profile.get('ascend_dmi'):
+                    profile['ascend_dmi'].update(available=False, reason='节点已重启，等待重新检查工具')
             node["mounts"] = decode(node["mounts"], [])
             node["devices"] = by_node.get(node["id"], [])
             if not node["sampled_at"] or (now() - node["sampled_at"]).total_seconds() > self.settings.stale_seconds:
@@ -152,6 +156,9 @@ class Inventory:
             current_node = c.fetchone()
             if not current_node:
                 raise DomainError("节点不存在", 404)
+            from .compute_benchmark import ACTIVE, ComputeBenchmark
+            if ComputeBenchmark.state(current_node).get('status') in ACTIVE:
+                raise DomainError('算力测试期间禁止修改节点配置或解除维护，请等待测试完成和空闲复核')
             if payload.get('compute_spec'):
                 from .schemas import ComputeSpec
                 spec = ComputeSpec.model_validate(payload['compute_spec']).model_dump()

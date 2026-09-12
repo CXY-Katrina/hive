@@ -233,8 +233,9 @@ NPU 节点为 Linux，已有 root SSH 账号、密码认证、SFTP 和匹配机�
 | `npu-smi` | 驱动提供的设备、SoC、AI Core、HBM、进程查询 |
 | `hccn_tool` | 对应代际的 NPU 互联检测 |
 | Docker | 可选，仅识别已有容器，不要求为纳管专门安装 |
+| Ascend-DMI（MindCluster ToolBox） | 可选；管理员手动执行 FP16 实测算力，普通纳管与采样不需要 |
 
-裸机无需额外安装 Python、Node.js、MySQL、CANN 或 PyTorch；实际调试任务的业务环境由用户自行准备。驱动/固件按现场设备要求安装，本平台不自动安装或升级驱动。
+普通纳管无需额外安装 Python、Node.js、MySQL、CANN 或 PyTorch；实际调试任务的业务环境由用户自行准备。若使用实测算力功能，节点还需兼容的 ToolBox 与 CANN 运行库（`libascendcl.so` 等），仅安装驱动不能保证测试可用。驱动/固件按现场设备要求安装，本平台不自动安装或升级驱动。
 
 非交互采集使用系统 PATH 加 `/usr/local/Ascend/driver/tools`；工具仅在交互 `.bashrc` 中可见时可能采集失败。在节点核对：
 
@@ -243,7 +244,28 @@ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/lo
 command -v bash timeout base64 findmnt setsid flock ps npu-smi
 npu-smi info
 npu-smi info -m
+uname -a
+uname -m
 ```
+
+#### 可选：实测算力
+
+在需要测试的 Linux 节点安装与其 CPU 架构、驱动兼容的官方 MindCluster ToolBox 和 CANN 运行库。ARM64 使用 aarch64 安装包，x86_64 使用 x86_64 安装包；不要把 Windows 中心机的架构当作 NPU 节点架构。包的版本和安装权限要求以对应版本的厂商说明为准。平台不分发安装包，也不自动修改节点业务环境。
+
+平台优先在系统路径和 `/usr/local/Ascend/toolbox/latest/Ascend-DMI/bin`、`/usr/local/Ascend/toolbox/latest/bin` 查找 `ascend-dmi`，并兼容 `/usr/local/Ascend/toolbox/*/Ascend-DMI/bin` 下已安装的版本。只读检查可在节点执行：
+
+```bash
+source /usr/local/Ascend/toolbox/set_env.sh
+# 按已安装的 CANN 布局选择一个存在的环境脚本
+source /usr/local/Ascend/cann/set_env.sh
+# 较早版本的对应路径为 /usr/local/Ascend/ascend-toolkit/set_env.sh
+ascend-dmi --version
+ascend-dmi -f -h
+```
+
+安装完成后，在“集群管理 → 重新检测”刷新工具状态。管理员在“查看检测结果 → 实测算力”手动触发测试；整机有申请、实际 NPU 进程、非零 AI Core、缺测或未确认的空闲显存基线时，后端拒绝执行。测试期间暂停该节点的新申请，后台执行不阻塞普通指标采集。页面显示逐逻辑设备的 FP16 实测 TFLOPS，摘要为最小值–最大值；不会将结果换算或标为 560T / 752T 理论规格。
+
+`ascend-dmi --version` 成功只代表工具可运行，不代表算力所需运行库齐全。如果出现 `libascendcl.so` 加载失败，按 [官方运行库排查说明](https://www.hiascend.com/document/detail/zh/mindcluster/730/toolbox/toolboxug/toolboxug_0097.html) 检查 CANN 安装与动态库路径。详细命令、占用判断和异常恢复见 [硬件与算力说明](docs/hardware-profile.md)。
 
 ### 6.2 登记主机公钥
 

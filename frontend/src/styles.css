@@ -2373,10 +2373,118 @@ tbody tr:last-child td {
 .hardware-details dd {
   overflow-wrap: anywhere;
 }
+.system-uname {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.metric-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.metric-help-trigger {
+  display: inline-grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: 1px solid var(--green);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--green);
+  font-size: 12px;
+  line-height: 1;
+  cursor: help;
+}
+.metric-help-trigger:hover,
+.metric-help-trigger:focus-visible {
+  background: #e9f2e9;
+}
+.metric-help-popup {
+  position: fixed;
+  z-index: 1200;
+  width: min(430px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--green);
+  border-radius: 5px;
+  background: #fbfdf9;
+  color: var(--ink);
+  box-shadow: 0 12px 36px #162b2629;
+  font-size: 12px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.metric-help-popup > strong {
+  font-size: 14px;
+}
+.metric-help-popup dl {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 12px;
+  margin: 14px 0 0;
+}
+.metric-help-popup dt {
+  color: var(--green);
+  font-weight: 600;
+}
+.metric-help-popup dd {
+  margin: 0;
+}
+.metric-help-popup code {
+  color: var(--ink);
+  font-size: inherit;
+}
 .compute-spec-editor {
   padding-bottom: 20px;
   margin-bottom: 20px;
   border-bottom: 1px solid var(--border);
+}
+.compute-benchmark-control {
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.compute-benchmark-details h4 {
+  margin: 22px 0 10px;
+}
+.benchmark-command-output {
+  margin-top: 16px;
+}
+.benchmark-command-output summary {
+  color: var(--green);
+  cursor: pointer;
+}
+.benchmark-command-output pre {
+  max-height: 280px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: #f5f8f3;
+  font: inherit;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.benchmark-device-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+.benchmark-device-grid > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+}
+.benchmark-device-grid small {
+  color: var(--muted);
+  font-weight: 400;
 }
 .compute-spec-actions {
   display: flex;

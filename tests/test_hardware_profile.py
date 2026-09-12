@@ -4,6 +4,8 @@ from pydantic import ValidationError
 from hive.domain import CommandResult
 from hive.hardware_profile import AscendHardwareProfile, soc_version
 from hive.schemas import NodeUpdate
+from hive.host_system import host_system
+from hive.ascend_dmi import tool_profile
 from tests.test_hardware import envelope, BOOT
 
 
@@ -22,7 +24,9 @@ class HardwareProfileTests(unittest.TestCase):
     def profile(self, chip, boot=BOOT):
         transport = Mock()
         transport.run.side_effect = [
-            CommandResult(envelope({'system': 'Atlas 800I A3', 'board': 'Product Name : IT22HMDA_4_S'}), '', 0),
+            CommandResult(envelope({'boot': BOOT, 'system': 'Atlas 800I A3', 'board': 'Product Name : IT22HMDA_4_S',
+                                   'uname': 'Linux server 5.10 aarch64 GNU/Linux', 'machine': 'aarch64',
+                                   'dmi_path': '/usr/local/bin/ascend-dmi', 'dmi_version': 'Version: 7.3.T'}), '', 0),
             CommandResult(envelope({'boot': boot, 'boot_after': boot, 'chip_0': chip}), '', 0)]
         node = {'boot_id': BOOT, 'devices': [{'slot': '0:0', 'command_id': '0', 'chip_id': '0'}]}
         return AscendHardwareProfile(transport).collect(node)
@@ -34,6 +38,33 @@ class HardwareProfileTests(unittest.TestCase):
         self.assertEqual(profile['system_product'], 'Atlas 800I A3')
         self.assertEqual(profile['board_product'], 'IT22HMDA_4_S')
         self.assertNotIn('fp16_tflops_per_module', profile)
+        self.assertEqual(profile['host_system']['architecture'], 'arm64')
+        self.assertTrue(profile['ascend_dmi']['available'])
+
+    def test_architecture_uses_uname_machine_not_hostname_or_kernel_substrings(self):
+        for machine, expected in [('aarch64', 'arm64'), ('x86_64', 'x86_64'), ('armv7l', 'arm'), ('i686', 'x86')]:
+            result = host_system({'uname': (0, 'Linux hostname-arm64 x86_64 GNU/Linux'), 'machine': (0, machine)}, 'stamp')
+            self.assertEqual(result['architecture'], expected)
+            self.assertEqual(result['quality'], 'ok')
+        result = host_system({'uname': (0, 'Linux arm64 aarch64 GNU/Linux')}, 'stamp')
+        self.assertEqual(result['architecture'], 'unknown')
+        self.assertEqual(result['quality'], 'unknown')
+        self.assertEqual(host_system({'machine': (0, 'riscv64')}, 'stamp')['machine'], 'riscv64')
+
+    def test_optional_dmi_unavailable_is_explicit(self):
+        for data in ({}, {'dmi_path': (0, '/tool/ascend-dmi'), 'dmi_version': (127, '')}):
+            result = tool_profile(data, 'stamp')
+            self.assertFalse(result['available'])
+            self.assertIsNone(result['version'])
+            self.assertTrue(result['reason'])
+
+    def test_unreachable_host_does_not_claim_tool_is_missing(self):
+        transport = Mock()
+        transport.run.return_value = CommandResult('', 'timeout', 124)
+        node = {'boot_id': BOOT, 'devices': [{'slot': '0:0', 'command_id': '0', 'chip_id': '0'}]}
+        profile = AscendHardwareProfile(transport).collect(node)
+        self.assertIsNone(profile['ascend_dmi'])
+        self.assertEqual(profile['host_system']['quality'], 'unknown')
 
     def test_failed_chip_query_is_partial_and_does_not_invent_soc(self):
         profile = self.profile((1, 'not supported'))

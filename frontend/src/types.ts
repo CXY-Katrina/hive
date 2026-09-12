@@ -11,15 +11,24 @@ export interface HardwareProfile {
   system_product: string | null; board_product: string | null; soc_versions: string[];
   devices: { slot: string | number; soc_version: string | null; chip_version: string | null }[];
   quality: 'ok' | 'partial' | 'unknown'; checked_at: string; source: string; reason?: string;
+  host_system?: { architecture: 'arm64' | 'arm' | 'x86_64' | 'x86' | 'unknown'; machine: string | null; uname: string | null; quality: string; reason?: string; source: string; checked_at: string };
+  ascend_dmi?: { available: boolean; path: string | null; version: string | null; reason: string | null; checked_at: string; source: string } | null;
 }
 export interface ComputeSpec {
   fp16_tflops_per_module: number; basis: 'FP16 dense, dual-die module'; source: string;
   updated_at: string; confirmed_soc_versions: string[];
 }
-export interface NodeMetadata extends Record<string, unknown> { hardware_profile?: HardwareProfile | null; compute_spec?: ComputeSpec | null }
+export interface ComputeBenchmark {
+  id: string; status: 'QUEUED' | 'RUNNING' | 'RECOVERING' | 'SUCCEEDED' | 'FAILED';
+  requested_at: string; requested_by: string; started_at?: string; finished_at?: string; recover_after?: string; reason?: string; recovery_reason?: string;
+  precision: 'FP16'; unit: 'TFLOPS'; scope: 'per_logical_device'; execute_times: number; timeout_seconds_per_device: number; command: string;
+  devices: { device_id: ID; slot: string | number; logical_id: string; tflops: number; output?: string }[];
+  min_tflops?: number; max_tflops?: number; boot_id?: string; last_output?: string; last_device_id?: string;
+}
+export interface NodeMetadata extends Record<string, unknown> { hardware_profile?: HardwareProfile | null; compute_spec?: ComputeSpec | null; compute_benchmark?: ComputeBenchmark | null }
 export interface NodeInfo {
   id: ID; name: string; host: string; port: number; ssh_user: string; cluster_name: string; generation: string; model: string; model_label?: string;
-  status: string; reason?: string; maintenance: boolean; sampled_at?: string; metadata: NodeMetadata;
+  status: string; reason?: string; maintenance: boolean; sampled_at?: string; boot_id?: string; metadata: NodeMetadata;
   mounts: Mount[]; devices: Device[];
 }
 export interface ResourceSpec { generation: string; model: string; mode: 'partial' | 'whole'; machine_count: number; cards_per_node: number; min_memory_gib: number; require_interconnect: boolean; queue: boolean; wait_minutes: number; note?: string }

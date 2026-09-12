@@ -21,6 +21,8 @@ class Worker:
         self.preflights={}
         self.controls={}
         self.control_last={}
+        self.benchmark_pool=ThreadPoolExecutor(max_workers=1,thread_name_prefix="hive-benchmark")
+        self.benchmark_future=None
 
     def collect_loop(self):
         with ThreadPoolExecutor(max_workers=self.s.settings.ssh_workers,thread_name_prefix="hive-collect") as pool:
@@ -93,6 +95,16 @@ class Worker:
         s=self.s
         self.drain(self.preflights)
         self.drain(self.controls)
+        if self.benchmark_future is not None and self.benchmark_future.done():
+            try:
+                self.benchmark_future.result()
+            except Exception as exc:
+                log.error("compute benchmark error=%s",type(exc).__name__)
+            self.benchmark_future=None
+        if self.benchmark_future is None and hasattr(s, 'compute_benchmark'):
+            pending_benchmarks=s.compute_benchmark.pending()
+            if pending_benchmarks:
+                self.benchmark_future=self.benchmark_pool.submit(s.compute_benchmark.run,pending_benchmarks[0])
         s.resources.expire_queued()
         if time.monotonic()-self.last_maintenance>=60:
             s.reporting.maintain()
@@ -180,9 +192,12 @@ class Worker:
             self.stop.set()
             self.s.transport.close()
             self.s.telemetry_transport.close()
+            if hasattr(self.s,'benchmark_transport'):
+                self.s.benchmark_transport.close()
             if collector:
                 collector.join(timeout=30)
             self.probe_pool.shutdown(wait=True,cancel_futures=True)
             self.preflight_pool.shutdown(wait=True,cancel_futures=True)
             self.control_pool.shutdown(wait=True,cancel_futures=True)
+            self.benchmark_pool.shutdown(wait=True,cancel_futures=True)
             connection.close()
