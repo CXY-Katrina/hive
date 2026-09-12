@@ -46,7 +46,6 @@ export function HardwareMetricHelp() {
   return <MetricHelp label="查看集群与规格的指标查询方式"><strong>指标查询方式</strong><dl>
     <dt>NPU 代际</dt><dd>纳管时按机器规格选择 A2 / A3 / A5。</dd>
     <dt>服务器机型</dt><dd><code>cat /sys/class/dmi/id/product_name</code>；也支持纳管时填写。页面省略板卡产品后缀。</dd>
-    <dt>集群</dt><dd>纳管时填写的分组名称；默认集群不显示。</dd>
     <dt>SoC version</dt><dd><code>npu-smi info -t board -i &lt;NPU ID&gt; -c &lt;Chip ID&gt;</code>，读取 Chip Name / NPU Name。</dd>
     <dt>实测算力</dt><dd><code>ascend-dmi -f -t fp16 -d &lt;Device ID&gt; --et 10 --fmt normal -q</code> 逐个逻辑设备测量 FP16 算力，显示各卡最小值–最大值，单位 TFLOPS。管理员在整机空闲时手动测试；详情中的手动理论规格来自资料，按双芯模块计，与实测口径不同。</dd>
     <dt>每卡显存</dt><dd><code>npu-smi info</code> 中 HBM / Memory-Usage 总量，按 MiB 换算为 GiB；“卡”指平台可分配的逻辑设备。</dd>
