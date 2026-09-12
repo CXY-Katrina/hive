@@ -60,6 +60,7 @@ export function HardwareSummary({ node }: { node: NodeInfo }) {
   const profile = node.metadata?.hardware_profile;
   return <div className="hardware-summary">
     <span><span className="muted">CPU 架构</span> <strong>{architectureLabel(node)}</strong></span>
+    <span title={node.metadata?.hdk?.reason || undefined}><span className="muted">HDK 版本</span> <strong>{node.metadata?.hdk?.quality === 'ok' ? node.metadata.hdk.version : '待采集'}</strong></span>
     <span><span className="muted">SoC version</span> <strong>{profile?.soc_versions?.join(' / ') || '待确认'}</strong>{profile?.soc_versions?.length && profile.quality !== 'ok' ? <small>（采集不完整）</small> : null}</span>
     <span title={node.metadata?.compute_benchmark?.recovery_reason || node.metadata?.compute_benchmark?.reason || profile?.ascend_dmi?.reason || undefined}><span className="muted">实测算力</span> <strong>{measuredComputeLabel(node)}</strong> <small>FP16 · 每逻辑设备</small></span>
   </div>;
@@ -72,6 +73,7 @@ export function HardwareDetails({ node, slot }: { node: NodeInfo; slot?: string 
   const devices = profile?.devices?.filter(device => slot == null || String(device.slot) === String(slot)) || [];
   return <section className="hardware-details"><h3>硬件规格</h3><HardwareSummary node={node} /><dl className="detail-list">
     <dt>系统产品</dt><dd>{profile?.system_product || '待确认'}<small className="subline">来源：cat /sys/class/dmi/id/product_name</small></dd>
+    <dt>HDK 版本</dt><dd>{node.metadata?.hdk?.quality === 'ok' ? node.metadata.hdk.version : '待采集'}<small className="subline">HDK 驱动软件包发布版本</small><code className="system-uname">{node.metadata?.hdk?.source || 'cat /usr/local/Ascend/driver/version.info'}</code>{node.metadata?.hdk?.field && <small className="subline">读取字段：{node.metadata.hdk.field}</small>}<small className="subline">采集时间：{dateTime(node.metadata?.hdk?.checked_at)}</small>{node.metadata?.hdk?.reason && <small className="subline reason-text">{node.metadata.hdk.reason}</small>}</dd>
     <dt>CPU 架构</dt><dd>{architectureLabel(node)}<small className="subline">判定依据：uname -m → {system?.machine || '待采集'}</small>{system?.reason && <small className="subline reason-text">{system.reason}</small>}</dd>
     <dt>uname -a</dt><dd><code className="system-uname">{system?.uname || '待采集'}</code><small className="subline">采集时间：{dateTime(system?.checked_at)}</small></dd>
     <dt>ascend-dmi</dt><dd>{profile?.ascend_dmi ? profile.ascend_dmi.available ? '可用' : profile.ascend_dmi.path ? '不可用' : '未安装' : '待检测'}{profile?.ascend_dmi?.version && <small className="subline">版本：{profile.ascend_dmi.version}</small>}{profile?.ascend_dmi?.path && <small className="subline mono">{profile.ascend_dmi.path}</small>}{profile?.ascend_dmi?.reason && <small className="subline reason-text">{profile.ascend_dmi.reason}</small>}</dd>

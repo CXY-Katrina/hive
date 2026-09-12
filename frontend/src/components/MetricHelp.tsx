@@ -50,5 +50,6 @@ export function HardwareMetricHelp() {
     <dt>实测算力</dt><dd><code>ascend-dmi -f -t fp16 -d &lt;Device ID&gt; --et 10 --fmt normal -q</code> 逐个逻辑设备测量 FP16 算力，显示各卡最小值–最大值，单位 TFLOPS。管理员在整机空闲时手动测试；详情中的手动理论规格来自资料，按双芯模块计，与实测口径不同。</dd>
     <dt>每卡显存</dt><dd><code>npu-smi info</code> 中 HBM / Memory-Usage 总量，按 MiB 换算为 GiB；“卡”指平台可分配的逻辑设备。</dd>
     <dt>CPU 架构</dt><dd><code>uname -a</code> 保留系统原始信息；<code>uname -m</code> 判定 ARM64 / ARM / x86_64 / x86，详情可查看原始结果。</dd>
+    <dt>HDK 版本</dt><dd><code>cat /usr/local/Ascend/driver/version.info</code>，优先读取 package_version，旧版本回退 Version / DriverVersion / version；表示 HDK 驱动软件包发布版本。</dd>
   </dl></MetricHelp>;
 }

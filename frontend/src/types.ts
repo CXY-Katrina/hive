@@ -25,7 +25,7 @@ export interface ComputeBenchmark {
   devices: { device_id: ID; slot: string | number; logical_id: string; tflops: number; output?: string }[];
   min_tflops?: number; max_tflops?: number; boot_id?: string; last_output?: string; last_device_id?: string;
 }
-export interface NodeMetadata extends Record<string, unknown> { hardware_profile?: HardwareProfile | null; compute_spec?: ComputeSpec | null; compute_benchmark?: ComputeBenchmark | null }
+export interface NodeMetadata extends Record<string, unknown> { hardware_profile?: HardwareProfile | null; compute_spec?: ComputeSpec | null; compute_benchmark?: ComputeBenchmark | null; hdk?: { version?: string | null; quality: string; checked_at: string; source: string; field?: string; reason?: string | null } }
 export interface NodeInfo {
   id: ID; name: string; host: string; port: number; ssh_user: string; cluster_name: string; generation: string; model: string; model_label?: string;
   status: string; reason?: string; maintenance: boolean; sampled_at?: string; boot_id?: string; metadata: NodeMetadata;

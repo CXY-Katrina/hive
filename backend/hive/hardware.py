@@ -12,6 +12,7 @@ import re
 import shlex
 
 from .domain import DeviceSample, DomainError, Process, Snapshot, decode, now
+from .hardware_versions import hdk_info
 
 
 PREAMBLE = r'''export LC_ALL=C
@@ -267,7 +268,7 @@ class AscendAdapter:
                         samples[key].processes.append(process)
             for sample in samples.values():
                 sample.process_complete = True
-            metadata = {}
+            metadata = {'hdk': hdk_info(data.get('driver', (1, '')), str(now()))}
             if data.get('driver', (1, ''))[0] == 0:
                 metadata['driver_version'] = self._driver_version(data['driver'][1])
             if data.get('firmware', (1, ''))[0] == 0:
