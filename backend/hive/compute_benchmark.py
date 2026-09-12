@@ -71,7 +71,7 @@ class ComputeBenchmark:
 
     def _locked(self, cursor, node_id):
         # Same first lock as ResourceService.reserve and Telemetry.ingest.
-        cursor.execute('SELECT * FROM nodes WHERE id=%s FOR UPDATE', (node_id,))
+        cursor.execute('SELECT * FROM nodes WHERE id=%s AND deleted_at IS NULL FOR UPDATE', (node_id,))
         node = cursor.fetchone()
         if not node:
             raise DomainError('节点不存在', 404)

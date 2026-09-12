@@ -2,6 +2,8 @@
 from contextlib import contextmanager
 from collections import OrderedDict
 import hashlib
+import base64
+import socket
 import posixpath
 import threading
 import time
@@ -10,6 +12,42 @@ import uuid
 import paramiko
 
 from .domain import CommandResult, DomainError
+
+
+def host_key_info(key):
+    return {'algorithm': key.get_name(),
+            'fingerprint': 'SHA256:' + base64.b64encode(hashlib.sha256(key.asbytes()).digest()).decode().rstrip('=')}
+
+
+class HostKeyRequired(DomainError):
+    def __init__(self, key):
+        super().__init__('SSH 主机公钥未登记，请先检测连接并核验主机指纹', 409)
+        self.host_key = host_key_info(key)
+
+
+class RejectPolicy(paramiko.RejectPolicy):
+    def __init__(self, expected=None):
+        self.expected = expected
+
+    def missing_host_key(self, client, hostname, key):
+        if not self.expected:
+            raise HostKeyRequired(key)
+        if self.expected != host_key_info(key)['fingerprint']:
+            raise DomainError('SSH 主机指纹与确认值不一致，请核验服务器身份', 409)
+
+
+def ssh_error(exc):
+    if isinstance(exc, DomainError):
+        return exc
+    if isinstance(exc, paramiko.BadHostKeyException):
+        return DomainError('SSH 主机公钥已变化，请由管理员核验并更新已登记公钥', 409)
+    if isinstance(exc, paramiko.AuthenticationException):
+        return DomainError('SSH 认证失败，请检查账号、密码及服务器密码登录配置', 422)
+    if isinstance(exc, (socket.timeout, TimeoutError)):
+        return DomainError('SSH 连接或操作超时，请检查网络、防火墙和 SSH 端口', 503)
+    if isinstance(exc, (ConnectionError, paramiko.ssh_exception.NoValidConnectionsError, socket.gaierror)):
+        return DomainError('无法连接 SSH，请检查服务器地址、端口和网络', 503)
+    return DomainError('SSH 操作失败，请检查 SSH 服务和节点命令是否可用', 503)
 
 
 class SSHTransport:
@@ -23,7 +61,7 @@ class SSHTransport:
     @contextmanager
     def _connection(self, node):
         key = (node['host'], int(node.get('port', 22)), node.get('ssh_user', 'root'),
-               hashlib.sha256(node.get('password', '').encode()).digest())
+               hashlib.sha256(node.get('password', '').encode()).digest(), node.get('host_key_fingerprint'))
         deadline = time.monotonic() + self.settings.ssh_timeout
         with self._condition:
             while True:
@@ -54,21 +92,24 @@ class SSHTransport:
                 if client:
                     client.close()
                 client = paramiko.SSHClient()
-                client.load_host_keys(str(self.settings.known_hosts))
-                client.set_missing_host_key_policy(paramiko.RejectPolicy())
                 entry['client'] = client
+                try:
+                    client.load_host_keys(str(self.settings.known_hosts))
+                except FileNotFoundError:
+                    pass
+                client.set_missing_host_key_policy(RejectPolicy(node.get('host_key_fingerprint')))
                 client.connect(hostname=node['host'], port=int(node.get('port', 22)),
                                username=node.get('ssh_user', 'root'), password=node.get('password') or None,
                                timeout=self.settings.ssh_timeout, auth_timeout=self.settings.ssh_timeout,
                                banner_timeout=self.settings.ssh_timeout, allow_agent=False, look_for_keys=False)
                 client.get_transport().set_keepalive(30)
             yield client
-        except (OSError, EOFError, paramiko.SSHException):
+        except (OSError, EOFError, paramiko.SSHException, DomainError) as exc:
             if entry['client']:
                 entry['client'].close()
                 entry['client'] = None
             # Do not leak credentials/server-controlled error text; never replay a command.
-            raise DomainError('SSH operation failed; verify connectivity, credentials and enrolled host key', 503) from None
+            raise ssh_error(exc) from None
         finally:
             with self._condition:
                 entry['busy'] = False

@@ -17,21 +17,24 @@ class Telemetry:
             lock = self._locks.setdefault(node_id, threading.Lock())
         with lock:
             node = self.inventory.connection(node_id)
+            self.inventory.record_probe(node_id, metadata={'collection': {'status': 'running', 'started_at': str(now())}})
             try:
                 adapter = self.adapters[node["adapter"]]
                 snapshot = adapter.collect(node)
                 self.ingest(node_id, snapshot)
                 return snapshot
             except Exception as exc:
-                # Credential/SSH library exceptions can include sensitive details. Record category only.
+                # DomainError contains curated application messages; raw library errors may contain secrets.
+                reason = str(exc) if isinstance(exc, DomainError) else '采集失败（' + type(exc).__name__ + '），请查看服务日志'
                 with self.db.transaction() as c:
-                    c.execute("UPDATE nodes SET status='unknown',reason=%s WHERE id=%s", (type(exc).__name__, node_id))
-                    c.execute("UPDATE devices SET quality='unknown',reason=%s WHERE node_id=%s", (type(exc).__name__, node_id))
+                    c.execute("UPDATE nodes SET status='unknown',reason=%s WHERE id=%s AND deleted_at IS NULL", (reason, node_id))
+                    c.execute("UPDATE devices SET quality='unknown',reason=%s WHERE node_id=%s", (reason, node_id))
+                self.inventory.record_probe(node_id, metadata={'collection': {'status': 'failed', 'finished_at': str(now())}})
                 raise
 
     def ingest(self, node_id, snapshot):
         if not snapshot.boot_id or not snapshot.devices:
-            raise DomainError("未取得完整设备清单/boot_id")
+            raise DomainError(snapshot.reason or "未取得完整设备清单/boot_id，请检查 npu-smi 和 Ascend 驱动")
         stamp = snapshot.sampled_at
         slots = [d.slot for d in snapshot.devices]
         if len(set(slots)) != len(slots):
@@ -46,10 +49,12 @@ class Telemetry:
             for key, value in d.extensions.items():
                 self.catalog.validate(key, value)
         with self.db.transaction() as c:
-            c.execute("SELECT id,boot_id,sampled_at FROM nodes WHERE id=%s FOR UPDATE", (node_id,))
+            c.execute("SELECT id,boot_id,sampled_at,deleted_at FROM nodes WHERE id=%s FOR UPDATE", (node_id,))
             node = c.fetchone()
             if not node:
                 raise DomainError("节点不存在", 404)
+            if node['deleted_at'] is not None:
+                return  # A sample already in flight cannot revive a removed node.
             if node["sampled_at"] and stamp <= node["sampled_at"]:
                 return  # Delayed samples must not replace fresh state.
             reboot = node["boot_id"] != snapshot.boot_id
@@ -94,6 +99,7 @@ class Telemetry:
             for missing in existing.values():
                 if missing["id"] not in seen:
                     c.execute("UPDATE devices SET quality='unknown',health='unknown',reason='设备未出现在枚举结果' WHERE id=%s", (missing["id"],))
+            snapshot.metadata['collection'] = {'status': 'ready' if snapshot.quality == 'ok' else 'failed', 'finished_at': str(now())}
             c.execute("UPDATE nodes SET status=%s,reason=%s,boot_id=%s,sampled_at=%s,metadata=JSON_MERGE_PATCH(COALESCE(metadata,JSON_OBJECT()),CAST(%s AS JSON)) WHERE id=%s",
                       (snapshot.quality,snapshot.reason,snapshot.boot_id,stamp,encode(snapshot.metadata),node_id))
             if reboot or set(existing) != set(slots):

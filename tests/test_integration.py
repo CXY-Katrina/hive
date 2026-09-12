@@ -70,6 +70,49 @@ class MySQLIntegration(unittest.TestCase):
         self.assertEqual(rows, [])
         rows.sort(key=lambda row: row['id'])
 
+    def test_remove_node_retains_history_revokes_credentials_and_allows_readmission(self):
+        from hive.domain import uid
+        node = self.node()
+        with self.assertRaises(DomainError):
+            self.inventory.remove(node['id'], self.alice)
+        self.inventory.remove(node['id'], self.admin)
+        self.assertEqual(self.inventory.list_nodes(), [])
+        saved = self.db.one('SELECT * FROM nodes WHERE id=%s', (node['id'],))
+        self.assertIsNotNone(saved['deleted_at'])
+        self.assertEqual(saved['password_cipher'], '')
+        self.assertTrue(saved['maintenance'])
+        self.assertTrue(self.db.all('SELECT * FROM device_samples'))
+        with self.assertRaises(DomainError):
+            self.inventory.connection(node['id'])
+        with self.assertRaises(DomainError):
+            self.inventory.update(node['id'], self.admin, {'maintenance': False})
+        # In-flight samples must not restore the removed node.
+        self.telemetry.ingest(node['id'], Snapshot([DeviceSample('0','0','0','0',64*1024**3,0,0,'OK',process_complete=True)], 'test-boot', now()))
+        self.assertEqual(self.db.one('SELECT status FROM nodes WHERE id=%s', (node['id'],))['status'], 'removed')
+        req = self.resources.create(self.alice, ResourceSpec(generation='A2').model_dump(), uid())
+        self.assertIsNone(self.resources.reserve(req['id']))
+        replacement = self.node()
+        self.assertNotEqual(replacement['id'], node['id'])
+        self.assertEqual(len(self.inventory.list_nodes()), 1)
+
+    def test_remove_node_rejects_live_allocations_and_benchmarks(self):
+        from hive.domain import uid, encode
+        node = self.node()
+        request = self.resources.create(self.alice, ResourceSpec(generation='A2').model_dump(), uid())
+        self.resources.reserve(request['id'])
+        with self.assertRaisesRegex(DomainError, '有效资源申请'):
+            self.inventory.remove(node['id'], self.admin)
+        other = self.node(host='10.0.0.2')
+        with self.db.transaction() as cursor:
+            cursor.execute('UPDATE nodes SET metadata=%s WHERE id=%s', (encode({'compute_benchmark': {'status': 'RUNNING'}}), other['id']))
+        with self.assertRaisesRegex(DomainError, '算力测试'):
+            self.inventory.remove(other['id'], self.admin)
+
+    def test_detected_model_replaces_manual_label(self):
+        node = self.node()
+        self.inventory.record_probe(node['id'], metadata={'hardware_profile': {'system_product': 'AC222'}})
+        self.assertEqual(self.inventory.get(node['id'])['model'], 'AC222')
+
     def test_server_model_label_and_legacy_model_both_match_resources(self):
         from hive.domain import uid
         from hive.inventory import model_label

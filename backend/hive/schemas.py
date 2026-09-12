@@ -11,17 +11,33 @@ class Login(Input):
     username: str
 
 
-class NodeCreate(Input):
-    name: str = Field(min_length=1, max_length=128)
+class NodeConnection(Input):
     host: str = Field(min_length=1, max_length=255)
     port: int = Field(default=22, ge=1, le=65535)
     ssh_user: str = Field(default="root", pattern=r"^[a-z_][a-z0-9_-]{0,63}$")
     password: str = Field(min_length=1, max_length=4096)
+    host_key_fingerprint: str | None = Field(default=None, pattern=r'^SHA256:[A-Za-z0-9+/]{43}$')
+
+    @field_validator('host')
+    @classmethod
+    def valid_host(cls, value):
+        import ipaddress
+        value = value.strip()
+        try:
+            ipaddress.ip_address(value)
+        except ValueError:
+            if not re.fullmatch(r'[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?', value):
+                raise ValueError('请输入有效 IP 或主机名')
+        return value
+
+
+class NodeCreate(NodeConnection):
+    name: str = Field(min_length=1, max_length=128)
     generation: str = Field(min_length=1,max_length=16,pattern=r"^[A-Za-z0-9_.-]+$")
     adapter: str = Field(default="ascend",pattern=r"^[a-z0-9_.-]{1,64}$")
     vendor: str = Field(default="ascend",pattern=r"^[a-z0-9_.-]{1,64}$")
     device_kind: str = Field(default="npu",pattern=r"^[a-z0-9_.-]{1,32}$")
-    model: str = Field(min_length=1, max_length=128)
+    model: str = Field(default='', max_length=128)
     cluster_name: str = Field(default="default", min_length=1, max_length=128)
 
 

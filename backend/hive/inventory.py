@@ -92,22 +92,23 @@ class Inventory:
                 raise DomainError("请输入有效 IP 或主机名", 422)
         with self.db.transaction() as c:
             c.execute("""INSERT INTO nodes
-                (id,name,cluster_name,host,port,ssh_user,password_cipher,generation,model,created_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (id,name,cluster_name,host,port,ssh_user,password_cipher,generation,model,created_at,metadata,boot_id)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (node_id, payload["name"], payload.get("cluster_name", "default"), host,
                  payload.get("port", 22), payload.get("ssh_user", "root"),
-                 self.encrypt(node_id, payload["password"]), payload["generation"], payload["model"], now()))
+                 self.encrypt(node_id, payload["password"]), payload["generation"], payload.get("model", ''), now(),
+                 encode(payload.get('metadata', {})), payload.get('boot_id')))
             self.db.audit(c, actor, "node.admit", node_id, {"host": host})
             c.execute("UPDATE nodes SET adapter=%s,vendor=%s,device_kind=%s WHERE id=%s",
                       (payload.get("adapter","ascend"),payload.get("vendor","ascend"),payload.get("device_kind","npu"),node_id))
         return self.get(node_id)
 
     def list_nodes(self):
-        nodes = self.db.all("SELECT id,name,cluster_name,host,port,ssh_user,generation,model,adapter,vendor,device_kind,maintenance,status,reason,boot_id,sampled_at,metadata,mounts,probe_requested,created_at FROM nodes ORDER BY host,id")
+        nodes = self.db.all("SELECT id,name,cluster_name,host,port,ssh_user,generation,model,adapter,vendor,device_kind,maintenance,status,reason,boot_id,sampled_at,metadata,mounts,probe_requested,created_at FROM nodes WHERE deleted_at IS NULL ORDER BY host,id")
         devices = self.db.all("""SELECT d.*,o.request_id,r.owner_name,r.protected_until,r.status AS allocation_status,
                               n.maintenance,n.adapter FROM devices d JOIN nodes n ON n.id=d.node_id
                               LEFT JOIN device_ownership o ON o.device_id=d.id
-                              LEFT JOIN resource_requests r ON r.id=o.request_id ORDER BY d.node_id,d.slot""")
+                              LEFT JOIN resource_requests r ON r.id=o.request_id WHERE n.deleted_at IS NULL ORDER BY d.node_id,d.slot""")
         by_node = {}
         for d in devices:
             d["processes"] = decode(d["processes"], [])
@@ -138,7 +139,7 @@ class Inventory:
         raise DomainError("节点不存在", 404)
 
     def connection(self, node_id):
-        node = self.db.one("SELECT * FROM nodes WHERE id=%s", (node_id,))
+        node = self.db.one("SELECT * FROM nodes WHERE id=%s AND deleted_at IS NULL", (node_id,))
         if not node:
             raise DomainError("节点不存在", 404)
         node["password"] = self.decrypt(node_id, node.pop("password_cipher"))
@@ -152,7 +153,7 @@ class Inventory:
     def update(self, node_id, actor, payload):
         self.require_admin(actor)
         with self.db.transaction() as c:
-            c.execute("SELECT id,metadata,generation,boot_id FROM nodes WHERE id=%s FOR UPDATE", (node_id,))
+            c.execute("SELECT id,metadata,generation,boot_id FROM nodes WHERE id=%s AND deleted_at IS NULL FOR UPDATE", (node_id,))
             current_node = c.fetchone()
             if not current_node:
                 raise DomainError("节点不存在", 404)
@@ -174,7 +175,7 @@ class Inventory:
             if "maintenance" in payload:
                 c.execute("UPDATE nodes SET maintenance=%s WHERE id=%s", (payload["maintenance"], node_id))
             if payload.get("password"):
-                c.execute("UPDATE nodes SET password_cipher=%s WHERE id=%s",
+                c.execute("UPDATE nodes SET password_cipher=%s,probe_requested=TRUE WHERE id=%s",
                           (self.encrypt(node_id, payload["password"]), node_id))
             if payload.get("ssh_user"):
                 c.execute("UPDATE nodes SET ssh_user=%s,probe_requested=TRUE WHERE id=%s",
@@ -190,21 +191,53 @@ class Inventory:
     def request_probe(self, node_id, actor):
         self.require_admin(actor)
         with self.db.transaction() as c:
-            c.execute("UPDATE nodes SET probe_requested=TRUE WHERE id=%s", (node_id,))
+            c.execute("UPDATE nodes SET probe_requested=TRUE WHERE id=%s AND deleted_at IS NULL", (node_id,))
             if not c.rowcount:
-                if not self.db.one("SELECT id FROM nodes WHERE id=%s", (node_id,)):
+                if not self.db.one("SELECT id FROM nodes WHERE id=%s AND deleted_at IS NULL", (node_id,)):
                     raise DomainError("节点不存在", 404)
             self.db.audit(c, actor, "node.probe.request", node_id)
 
     def record_probe(self, node_id, mounts=None, metadata=None,clear_requested=False):
         with self.db.transaction() as c:
+            c.execute("SELECT id FROM nodes WHERE id=%s AND deleted_at IS NULL FOR UPDATE", (node_id,))
+            if not c.fetchone():
+                return
             if mounts is not None:
                 c.execute("UPDATE nodes SET mounts=%s WHERE id=%s", (encode(mounts), node_id))
             if metadata is not None:
                 c.execute("UPDATE nodes SET metadata=JSON_MERGE_PATCH(COALESCE(metadata,JSON_OBJECT()),CAST(%s AS JSON)) WHERE id=%s",
                           (encode(metadata), node_id))
+                model = (metadata.get('hardware_profile') or {}).get('system_product')
+                if model:
+                    c.execute("UPDATE nodes SET model=%s WHERE id=%s", (model[:128], node_id))
             if clear_requested:
                 c.execute("UPDATE nodes SET probe_requested=FALSE WHERE id=%s", (node_id,))
+
+    def remove(self, node_id, actor):
+        self.require_admin(actor)
+        with self.db.transaction() as c:
+            # Same node lock as allocation and telemetry; retain historical references.
+            c.execute("SELECT id,metadata FROM nodes WHERE id=%s AND deleted_at IS NULL FOR UPDATE", (node_id,))
+            node = c.fetchone()
+            if not node:
+                raise DomainError('节点不存在', 404)
+            from .compute_benchmark import ACTIVE, ComputeBenchmark
+            if ComputeBenchmark.state(node).get('status') in ACTIVE:
+                raise DomainError('节点正在进行算力测试或恢复，暂时无法移除')
+            c.execute("SELECT o.device_id FROM device_ownership o JOIN devices d ON d.id=o.device_id WHERE d.node_id=%s LIMIT 1", (node_id,))
+            if c.fetchone():
+                raise DomainError('节点仍有有效资源申请，请先释放后再移除')
+            c.execute("""SELECT a.request_id FROM allocation_devices a JOIN resource_requests r ON r.id=a.request_id
+                         WHERE a.node_id=%s AND r.status IN ('RESERVED','ACTIVE','RELEASING') LIMIT 1""", (node_id,))
+            if c.fetchone():
+                raise DomainError('节点仍有有效资源申请或清理任务，暂时无法移除')
+            c.execute("""SELECT e.id FROM execution_nodes n JOIN executions e ON e.id=n.execution_id
+                         WHERE n.node_id=%s AND e.status NOT IN ('SUCCEEDED','FAILED','CANCELLED') LIMIT 1""", (node_id,))
+            if c.fetchone():
+                raise DomainError('节点仍有运行中的任务，暂时无法移除')
+            c.execute("""UPDATE nodes SET deleted_at=%s,maintenance=TRUE,probe_requested=FALSE,
+                         password_cipher='',status='removed',config_version=config_version+1 WHERE id=%s""", (now(), node_id))
+            self.db.audit(c, actor, 'node.remove', node_id)
 
     def credentials(self, node_id, actor):
         allowed = actor.admin or self.db.one("""SELECT r.id FROM resource_requests r

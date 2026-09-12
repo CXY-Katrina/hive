@@ -8,7 +8,7 @@ from fastapi.encoders import jsonable_encoder
 import pymysql
 from .config import Settings
 from .domain import DomainError, decode
-from .schemas import Login, NodeCreate, NodeUpdate, RequestCreate, TaskCreate
+from .schemas import Login, NodeConnection, NodeCreate, NodeUpdate, RequestCreate, TaskCreate
 
 
 def respond(value, status=200):
@@ -82,7 +82,21 @@ def create_app(services=None, settings=None):
 
     @app.post("/api/nodes")
     def admit(body: NodeCreate, actor=Depends(current)):
-        return respond(services.inventory.create(actor,body.model_dump()),201)
+        services.inventory.require_admin(actor)
+        payload = body.model_dump()
+        verified = services.onboarding.check(payload, enroll=True)
+        payload.update(model=verified['model'], metadata=verified['metadata'], boot_id=verified['boot_id'])
+        return respond(services.inventory.create(actor,payload),201)
+
+    @app.post("/api/nodes/check")
+    def check_node(body: NodeConnection, actor=Depends(current)):
+        services.inventory.require_admin(actor)
+        return respond(services.onboarding.check(body.model_dump()))
+
+    @app.delete("/api/nodes/{node_id}")
+    def remove_node(node_id: str, actor=Depends(current)):
+        services.inventory.remove(node_id, actor)
+        return {"ok": True}
 
     @app.patch("/api/nodes/{node_id}")
     def update_node(node_id: str, body: NodeUpdate, actor=Depends(current)):

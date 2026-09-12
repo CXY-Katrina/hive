@@ -29,7 +29,7 @@ export interface NodeMetadata extends Record<string, unknown> { hardware_profile
 export interface NodeInfo {
   id: ID; name: string; host: string; port: number; ssh_user: string; cluster_name: string; generation: string; model: string; model_label?: string;
   status: string; reason?: string; maintenance: boolean; sampled_at?: string; boot_id?: string; metadata: NodeMetadata;
-  mounts: Mount[]; devices: Device[];
+  mounts: Mount[]; devices: Device[]; probe_requested?: boolean;
 }
 export interface ResourceSpec { generation: string; model: string; mode: 'partial' | 'whole'; machine_count: number; cards_per_node: number; min_memory_gib: number; require_interconnect: boolean; queue: boolean; wait_minutes: number; note?: string }
 export interface Assignment { device_id?: ID; node_id?: ID; host: string; slot?: number | string; slots?: string[]; node_name?: string; result?: {exit_code?: number}; status?: string }

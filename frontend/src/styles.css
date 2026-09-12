@@ -329,6 +329,15 @@ svg {
   background: #eaf4e9;
   border-color: #95baa0;
 }
+.connection-check {
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.host-key-fingerprint { display: block; overflow-wrap: anywhere; margin: 12px 0; font-size: 12px; }
+.check-line { display: flex; align-items: center; gap: 10px; }
+.check-line input { width: auto; }
 .button.danger {
   background: #b4433c;
   color: white;
