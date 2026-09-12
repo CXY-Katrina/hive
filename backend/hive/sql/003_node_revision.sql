@@ -1,0 +1,1 @@
+ALTER TABLE nodes ADD COLUMN config_version INT NOT NULL DEFAULT 1;

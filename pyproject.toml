@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hive-npu"
+version = "0.1.0"
+description = "Agentless NPU resource management over SSH"
+requires-python = ">=3.11"
+dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.34,<1", "PyMySQL>=1.1,<2", "paramiko>=3.5,<5", "cryptography>=44"]
+
+[project.optional-dependencies]
+test = ["httpx>=0.28,<1"]
+
+[project.scripts]
+hive = "hive.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+
+[tool.setuptools.package-data]
+hive = ["sql/*.sql", "scripts/*.sh"]

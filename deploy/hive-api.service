@@ -1,0 +1,16 @@
+[Unit]
+Description=Hive API and React frontend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hive
+WorkingDirectory=/opt/hive
+ExecStart=/opt/hive/.venv/bin/hive api --host 127.0.0.1 --port 8000 --env-file /opt/hive/.env
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

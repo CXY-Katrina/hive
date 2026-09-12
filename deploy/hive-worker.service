@@ -1,0 +1,17 @@
+[Unit]
+Description=Hive SSH collection and task worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hive
+WorkingDirectory=/opt/hive
+ExecStart=/opt/hive/.venv/bin/hive worker --env-file /opt/hive/.env
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=60
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

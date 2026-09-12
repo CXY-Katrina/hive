@@ -1,0 +1,29 @@
+import { useRef, useState, type FormEvent } from 'react';
+import { errorText, operationKey, post } from '../api';
+import { useQuery } from '../hooks';
+import type { ResourceRequest, User } from '../types';
+import { Assignments } from '../components/Assignments';
+import { defaultResource, ResourceForm, resourceDescription } from '../components/ResourceForm';
+import { Badge, dateTime, Empty, ErrorNotice, Icon, Loading, Modal, PageHeader, shortId } from '../components/ui';
+
+const finalStates = ['released', 'cancelled', 'failed', 'expired', 'completed'];
+export function RequestsPage({ user }: { user: User }) {
+  const query = useQuery<ResourceRequest[]>('/requests', 15000);
+  const [spec, setSpec] = useState(defaultResource);
+  const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
+  const [release, setRelease] = useState<ResourceRequest>(); const [mine, setMine] = useState(false);
+  const submission = useRef({ signature: '', key: '' });
+  const submit = async (event: FormEvent) => {
+    event.preventDefault(); if (busy) return; setBusy(true); setError(''); setNotice('');
+    const payload = { spec: { ...spec, purpose: 'debug' } }; const signature = JSON.stringify(payload);
+    if (signature !== submission.current.signature) submission.current = { signature, key: operationKey() };
+    try { const result = await post<ResourceRequest>('/requests', { ...payload, idempotency_key: submission.current.key }); setNotice(`申请 #${shortId(result.id)} 已登记。分配结果将在列表中更新。`); submission.current = { signature: '', key: '' }; void query.reload(); }
+    catch (err) { setError(errorText(err)); } finally { setBusy(false); }
+  };
+  const confirmRelease = async () => { if (!release || busy) return; setBusy(true); setError(''); try { await post(`/requests/${release.id}/release`); setNotice('归还已提交，清理及释放核验完成后资源将重新可用。'); setRelease(undefined); void query.reload(); } catch (err) { setError(errorText(err)); } finally { setBusy(false); } };
+  const rows = (query.data || []).filter(item => !mine || item.owner_name === user.username);
+  return <><PageHeader eyebrow="RESOURCE REQUESTS" title="机器申请" description="按需选择机器与卡，分配结果包含 IP、卡号和连接凭据。"><span className="owner-pill"><Icon name="user" size={16} />申请人：{user.username}</span></PageHeader><div className="split-layout"><section className="panel request-form-panel"><div className="panel-title"><span className="title-icon"><Icon name="request" /></span><div><h2>申请调试资源</h2><p>资源按完整申请集合交付</p></div></div><form onSubmit={event => void submit(event)}><div className="panel-body"><ResourceForm value={spec} onChange={setSpec} /><ErrorNotice text={error} />{notice && <div className="notice success" role="status"><Icon name="check" size={17} /><span>{notice}</span></div>}</div><div className="form-footer"><span>{resourceDescription(spec)}</span><button className="button primary" disabled={busy}>{busy ? '正在处理…' : '提交申请'}<Icon name="arrow" size={16} /></button></div></form></section><aside className="policy-panel"><span className="eyebrow">调试资源使用约定</span><h3>准备环境，也有余裕。</h3><div className="policy-time"><strong>30</strong><span>分钟<br />交付保护期</span></div><ol><li><strong>按卡分配</strong><p>拿到资源后，只使用分配给你的卡。</p></li><li><strong>按实际使用保留</strong><p>保护期后，只要申请卡集合仍有 AI Core 活动，继续保留。</p></li><li><strong>空闲后自动归还</strong><p>全部申请卡连续 10 分钟 AI Core 为零，可清理关联进程并释放；缺测不视为空闲。</p></li></ol></aside></div>
+  <section className="panel section-gap"><div className="panel-toolbar"><h2>申请记录 <span className="count-chip">{rows.length}</span></h2><div className="toolbar-actions"><label className="check-field simple"><input type="checkbox" checked={mine} onChange={e => setMine(e.target.checked)} />只看我的</label><button className="icon-button" title="刷新申请记录" aria-label="刷新申请记录" onClick={() => void query.reload()} disabled={query.loading}><Icon name="refresh" size={17} /></button></div></div><ErrorNotice text={query.error} retry={() => void query.reload()} />{!query.data && query.loading ? <Loading /> : !query.data && query.error ? <Empty title="暂时无法读取申请记录" detail="请检查连接后重试。" /> : !rows.length ? <Empty title="暂无申请记录" detail="提交申请后，在这里查看分配进度和连接信息。" /> : <div className="record-list">{rows.map(item => <article className="request-record" key={item.id}><div className="record-heading"><div><strong>#{shortId(item.id)}</strong><span className="muted">{item.owner_name} · {dateTime(item.created_at)}</span></div><Badge value={item.status} /></div><p className="record-spec">{resourceDescription(item.spec)}{item.spec?.require_interconnect && <span className="tag">多机互联</span>}{item.purpose === 'task' && <span className="tag">任务资源</span>}</p>{item.spec?.note && <p className="record-reason">用途：{item.spec.note}</p>}{item.reason && <p className="record-reason">{item.reason}</p>}<Assignments devices={item.devices || []} showCredentials />{item.protected_until && <p className="protected-line"><Icon name="clock" size={14} />保护至 {dateTime(item.protected_until)}</p>}{!finalStates.includes(item.status.toLowerCase()) && item.purpose !== 'task' && (user.admin || item.owner_name === user.username) && <div className="record-actions"><button className="button secondary small-button" onClick={() => { setRelease(item); setError(''); }}>{['queued', 'pending'].includes(item.status.toLowerCase()) ? '取消申请' : '归还资源'}</button></div>}</article>)}</div>}</section>
+  {release && <Modal title={`归还申请 #${shortId(release.id)}`} onClose={() => setRelease(undefined)}><div className="modal-body"><p>归还会结束此申请，并清理可确认归属的关联进程。资源核验完成前仍保持占用。</p><p className="muted">{resourceDescription(release.spec)}</p><ErrorNotice text={error} /></div><div className="modal-actions"><button className="button secondary" onClick={() => setRelease(undefined)}>继续使用</button><button className="button danger" disabled={busy} onClick={() => void confirmRelease()}>{busy ? '正在提交…' : '确认归还'}</button></div></Modal>}</>;
+}
+
