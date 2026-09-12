@@ -21,6 +21,7 @@ class Settings:
     stale_seconds: int = 45
     ssh_timeout: int = 20
     ssh_workers: int = 8
+    workflow_sample_preset_id: str = ""
 
     @classmethod
     def from_env(cls, env_file=None):

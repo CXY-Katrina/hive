@@ -502,3 +502,71 @@ Set-Location ..
 | `deploy/` | 可选 Linux systemd 示例；非 Windows 安装脚本 |
 
 进一步阅读：[设计与申请释放规则](docs/design.md)、[实现范围](docs/implementation.md)、[SoC/算力来源](docs/hardware-profile.md)、[实机验收记录](docs/real-node-acceptance.md)、[互联与容器查询依据](docs/research/node-connectivity-and-containers.md)。历史 Slurm 研究只作背景材料，当前平台不依赖 Slurm。
+
+## 12. PR 任务编排与容器执行
+
+“机器申请”支持只申请调试资源，也支持勾选“新建任务”。任务使用 vllm-project/vllm-ascend PR；提交时从该 PR 的固定 head SHA 读取 `.github/vllm-main-verified.commit`，冻结对应的 vLLM SHA、执行文件和输入摘要。PR 更新后需要重新解析再提交，已提交任务不随 PR 自动变化。
+
+每个任务包含多个 job，可通过图上连接端口或依赖选择框编排。Shell、Python 文件按目标容器解释器执行；YAML 必须关联 PR 中的 Shell/Python 执行入口，参数用 `${input}` 指定配置位置。安装、前校验、测试、后确认和结果校验均来自外部脚本或 PR；Hive 不保存模型专用执行代码或安装配方。上传执行代码必须与 PR 内容一致，上传数据 YAML 会记录独立摘要。
+
+服务端和客户端分别配置镜像、解释器、依赖参数、安装和核验入口。二者都绑定 `node0` 时只申请一台机器，各自创建独立容器；绑定 `node0` / `node1` 时申请两台机器。纯请求客户端可以选 0 张 NPU，服务端仍占用自己的卡。服务 job 需提供就绪检查，客户端使用 `ready` 依赖；普通 job 使用 `succeeded` 依赖。无依赖且卡/端口不冲突的 job 可以并行，同一宿主机最多 4 个运行 job。现有启动脚本映射所有卡，实际使用范围仍依赖团队遵守分配规则。
+
+安装环境可由多个任务复用。同一运行空间继续持有原资源申请，后续任务可选择该空间。当前复用要求 PR/vLLM SHA 和安装配置相同，支持替换测试 YAML；改变安装代码或依赖时新建空间。默认所有任务结束后关闭环境并归还资源；勾选保留后按页面时长保留，并可主动关闭。取消单个任务不会关闭其他任务使用的环境，关闭空间会取消其中未结束任务。关闭结果不明确时继续保留资源并显示原因。
+
+### 12.1 部署与依赖
+
+中心机继续使用现有 Python/MySQL/API/worker，页面仍部署在 **18000**。升级代码后停止 API 和 worker，使用同一环境配置运行迁移，再构建前端并启动两个进程：
+
+```powershell
+.\.venv\Scripts\python.exe -m hive.cli migrate --env-file .env
+npm.cmd --prefix frontend ci
+npm.cmd --prefix frontend run build
+```
+
+按上文已有 Windows 启动方式重新启动。新增的工作流和预置表随 `migrate` 自动建立；不会导入机器密码、历史数据或示例任务。没有 Redis、Celery、Slurm、节点 agent 或中心机 YAML 解析依赖。Playwright 仅用于开发验证，不是运行服务所需依赖。
+
+节点需要已有 SSH、Docker、Bash、`flock`、`timeout`、`setsid`、`ps`、`sha256sum`、`base64` 等基础工具。容器也需这些进程控制工具及 Git；Python 入口还需对应解释器。业务依赖全部由所选镜像和 PR 安装入口负责，Hive 不会在裸机安装 CANN、PyTorch 或测试工具。
+
+当前登记的外部引导入口是 `/mnt/share/c00814587/start-docker-A3.sh`，参数为镜像和容器名。它需要节点已有镜像；Hive 固定镜像 ID 后调用，不自动拉取猜测的镜像。入口也可引用 PR 中的文件。容器创建是宿主机引导步骤；其余业务步骤均在绑定的容器中运行。启动器需在时限内同步返回，退出 0 表示指定容器已创建；不要让启动器在返回后另起延迟创建容器的后台工作。
+
+### 12.2 外部脚本参数与结果
+
+参数数组支持 `${source_dir}`、`${image}`、`${container_name}`、`${ascend_sha}`、`${vllm_sha}`、`${task_id}`、`${job_id}`、`${node0.ip}`、`${port}` 等引用；`${服务jobID.endpoint}` 引用依赖服务的地址。环境准备阶段尚无 job ID，部署脚本应使用环境/节点上下文。
+
+容器内提供 `HIVE_CONTEXT_JSON`、`HIVE_SOURCE_DIR`、`HIVE_PACKAGES_JSON` 和平台分配的 `ASCEND_RT_VISIBLE_DEVICES`。安装入口读取包名、版本和来源等输入，自行完成安装及核验；客户端的包列表独立于服务端。未提供安装脚本或软件包链接时，平台不会凭版本号推测安装命令。
+
+每个 job 可声明容器内产物绝对路径及 `file` / `metrics` 类型。普通文件按原样归档；metrics 文件由外部代码导出以下通用格式，Hive 不计算业务指标或阈值：
+
+```json
+{
+  "metrics": [
+    {"name": "metric_name", "value": 1.0, "unit": "unit", "tags": {}, "verdict": "unknown"}
+  ],
+  "verdict": "unknown"
+}
+```
+
+`verdict` 支持 `passed`、`failed`、`unknown`。缺失时显示“业务判定未提供”，不会把步骤退出 0 当作性能/精度达标。外部失败判定不会被后置脚本成功覆盖。上例只说明数据格式，不是示例测试结果。
+
+每个执行阶段最多保留 20 MiB 原始日志，网页展示尾部并支持下载完整归档；达到上限会标记截断。每项产物最多 4 MiB、每个 job 最多 16 项/总计 16 MiB。归档存放在 `HIVE_DATA_DIR` 下的 `workflow-logs` 和 `workflow-artifacts`，不写入 Git。当前不自动删除归档，需要部署者为该目录预留容量和备份。
+
+### 12.3 nightly / weekly 预置接入
+
+预置从 PR 中的 JSON 清单导入，内容为 `{"items":[{"id":"...","name":"...","tags":{},"workflow":{...}}]}`，workflow 使用[任务接口契约](docs/workflow-api.md)中的通用字段。上游用例枚举、YAML 解析和结果导出适配应在 vllm-ascend PR 中维护。Hive 仓库不包含这些业务适配代码；缺少清单或入口时需先在 PR 中补齐。
+
+管理员可在机器申请的预置区导入清单并单项启用，也可通过 `POST /api/presets/import` 提交 `{source:{pr,head_sha,vllm_sha},path:"PR内清单.json"}`。所有导入项初始禁用，可筛选标签并查看来源。首批只开放一个已确认样例：将 `HIVE_WORKFLOW_SAMPLE_PRESET_ID` 配置为该清单条目的 `id`（不是数据库 UUID），重启 API 后由管理员单项调用 `POST /api/presets/{数据库UUID}/enable` 批准。默认配置为空时全部不可启用，不提供批量启用操作。
+
+指定 Qwen3 样例的上游调查记录见[任务设计](docs/task-workflows.md)。真实业务验收需要实际 PR、对应的部署/测试/校验入口、本地镜像、权重及数据集；尚未提供这些输入时，空预置列表是正常状态。其他 nightly/weekly 用例等待样例验收后再接入执行。
+
+### 12.4 开发验证
+
+```powershell
+$env:HIVE_TEST_MYSQL_PORT = "测试MySQL端口"
+$env:HIVE_TEST_MYSQL_USER = "测试账号"
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+npm.cmd --prefix frontend run test:browser
+```
+
+MySQL 测试使用独立随机测试库，GitHub 与调度测试的 SSH 都在外部边界模拟。浏览器测试在独立随机端口运行并拦截 API，不提交真实任务。Linux 进程协议还需隔离容器实测；仅 Windows mock 通过不能作为 NPU 业务验收证据。
+
+本次平台回归与 Linux 协议实测结果见[任务编排验收记录](docs/workflow-acceptance.md)，其中列明尚待业务 PR 和资源完成的样例验收。

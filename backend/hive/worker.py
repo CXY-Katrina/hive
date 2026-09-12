@@ -23,6 +23,9 @@ class Worker:
         self.control_last={}
         self.benchmark_pool=ThreadPoolExecutor(max_workers=1,thread_name_prefix="hive-benchmark")
         self.benchmark_future=None
+        self.workflow_pool=ThreadPoolExecutor(max_workers=4,thread_name_prefix='hive-workflows')
+        self.workflow_futures={}
+        self.workflow_last={}
 
     def collect_loop(self):
         with ThreadPoolExecutor(max_workers=self.s.settings.ssh_workers,thread_name_prefix="hive-collect") as pool:
@@ -95,6 +98,14 @@ class Worker:
         s=self.s
         self.drain(self.preflights)
         self.drain(self.controls)
+        self.drain(self.workflow_futures)
+        if hasattr(s, 'workflows'):
+            spaces=s.db.all("SELECT id FROM workflow_spaces WHERE status!='CLOSED' ORDER BY created_at")
+            spaces.sort(key=lambda row:self.workflow_last.get(row['id'],0))
+            for row in spaces:
+                if row['id'] not in self.workflow_futures and len(self.workflow_futures)<4:
+                    self.workflow_futures[row['id']]=self.workflow_pool.submit(s.workflows.tick_space,row['id'])
+                    self.workflow_last[row['id']]=time.monotonic()
         if self.benchmark_future is not None and self.benchmark_future.done():
             try:
                 self.benchmark_future.result()
@@ -200,4 +211,5 @@ class Worker:
             self.preflight_pool.shutdown(wait=True,cancel_futures=True)
             self.control_pool.shutdown(wait=True,cancel_futures=True)
             self.benchmark_pool.shutdown(wait=True,cancel_futures=True)
+            self.workflow_pool.shutdown(wait=True,cancel_futures=True)
             connection.close()

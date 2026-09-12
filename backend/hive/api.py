@@ -52,6 +52,12 @@ def create_app(services=None, settings=None):
     def current(request: Request):
         return services.identity.current(request.cookies.get("hive_session"))
 
+    from .workflows import register_workflow_routes
+    register_workflow_routes(app, services, current, respond)
+    from .sources_api import register_source_routes
+    register_source_routes(app, services, current, respond)
+    from .presets_api import register_preset_routes
+    register_preset_routes(app, services, current, respond)
 
     @app.get("/api/health")
     def health():

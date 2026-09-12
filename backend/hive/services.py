@@ -16,6 +16,9 @@ def build_services(settings):
     from .cleanup import Cleanup
     from .compute_benchmark import ComputeBenchmark
     from .onboarding import Onboarding
+    from .workflows import Workflows
+    from .sources import SourceService
+    from .presets import Presets
     db=Database(settings)
     inventory=Inventory(db,settings)
     transport=SSHTransport(settings)
@@ -27,9 +30,13 @@ def build_services(settings):
     catalog=MetricCatalog()
     telemetry=Telemetry(db,inventory,telemetry_adapters,catalog,settings)
     resources=ResourceService(db,settings)
+    sources=SourceService()
     return SimpleNamespace(db=db,settings=settings,identity=Identity(db,settings),inventory=inventory,
         transport=transport,telemetry_transport=telemetry_transport,benchmark_transport=benchmark_transport,
         onboarding=Onboarding(settings),
+        sources=sources,
+        presets=Presets(db,sources,settings.workflow_sample_preset_id),
+        workflows=Workflows(db,resources,inventory,transport,settings,sources),
         compute_benchmark=ComputeBenchmark(db,settings,inventory,telemetry,benchmark_transport),
         adapters=adapters,catalog=catalog,telemetry=telemetry,resources=resources,reporting=Reporting(db,settings),
         probes=AdmissionProbe(db,transport,adapters,inventory),

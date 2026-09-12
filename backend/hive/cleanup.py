@@ -62,6 +62,9 @@ class Cleanup:
         epoch = request["version"]
         try:
             if request["purpose"] == "task":
+                space = self.db.one('SELECT status FROM workflow_spaces WHERE request_id=%s', (request_id,))
+                if space and space['status'] != 'CLOSED':
+                    raise DomainError('任务运行空间尚未关闭，保留卡锁')
                 execution = self.db.one("SELECT id FROM executions WHERE request_id=%s", (request_id,))
                 if execution:
                     nodes = self.db.all("SELECT status FROM execution_nodes WHERE execution_id=%s", (execution["id"],))
@@ -79,6 +82,8 @@ class Cleanup:
                 node = self.inventory.get(node_id)
                 full = node["devices"]
                 selected = [d for d in full if d["id"] in allocated_ids]
+                if request['purpose'] == 'task' and space and any(decode(d.get('processes'), []) for d in selected):
+                    raise DomainError('平台容器已关闭但仍有其他进程占卡，保留资源等待核验')
                 if len(selected) != len(allocated_ids):
                     raise DomainError("申请设备缺失，保留卡锁")
                 if any(d.get("quality") != "ok" or d.get("health") != "OK" or not d.get("process_complete") for d in selected):
