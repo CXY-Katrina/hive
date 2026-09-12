@@ -41,10 +41,28 @@ class ResourceService:
         return row
 
     def list(self):
-        rows = self.db.all("SELECT * FROM resource_requests ORDER BY created_at DESC LIMIT 500")
+        terminal = tuple(sorted(TERMINAL))
+        rows = self.db.all("""SELECT * FROM resource_requests WHERE status NOT IN (%s,%s,%s)
+                          UNION ALL
+                          (SELECT * FROM resource_requests WHERE status IN (%s,%s,%s)
+                           ORDER BY created_at DESC,id DESC LIMIT 500)
+                          ORDER BY created_at DESC,id DESC""", terminal + terminal)
+        by_id = {r["id"]: r for r in rows}
         for r in rows:
             r["spec"] = decode(r["spec"])
-            r["devices"] = self.devices(r["id"], include_released=True)
+            r["devices"] = []
+        # History can include hundreds of requests; avoid one MySQL connection
+        # per row while keeping every active allocation visible.
+        ids = list(by_id)
+        for offset in range(0, len(ids), 500):
+            batch = ids[offset:offset + 500]
+            placeholders = ",".join(["%s"] * len(batch))
+            devices = self.db.all("""SELECT d.*,n.host,n.port,n.generation,n.adapter,n.maintenance,n.config_version,
+                              a.epoch,a.released_at,a.request_id AS allocation_request_id
+                              FROM allocation_devices a JOIN devices d ON d.id=a.device_id JOIN nodes n ON n.id=d.node_id
+                              WHERE a.request_id IN (""" + placeholders + ") ORDER BY n.id,d.slot", tuple(batch))
+            for device in devices:
+                by_id[device.pop("allocation_request_id")]["devices"].append(device)
         return rows
 
     def get(self, request_id):
@@ -131,7 +149,7 @@ class ResourceService:
                 c.execute("UPDATE resource_requests SET status='FAILED',reason='排队期限已到' WHERE id=%s", (request_id,))
                 self.db.audit(c,SYSTEM,"request.expired",request_id)
                 return None
-            c.execute("""SELECT d.*,o.request_id,n.maintenance FROM devices d JOIN nodes n ON n.id=d.node_id
+            c.execute("""SELECT d.*,o.request_id,n.maintenance,n.adapter FROM devices d JOIN nodes n ON n.id=d.node_id
                          LEFT JOIN device_ownership o ON o.device_id=d.id ORDER BY d.node_id,d.slot""")
             devices = c.fetchall()
             candidates = []
@@ -203,7 +221,7 @@ class ResourceService:
             req=c.fetchone()
             if not req or req["status"]!="RESERVED" or req["version"]!=epoch:
                 return False
-            c.execute("""SELECT d.*,o.epoch,n.maintenance,n.config_version FROM device_ownership o JOIN devices d ON d.id=o.device_id
+            c.execute("""SELECT d.*,o.epoch,n.maintenance,n.config_version,n.adapter FROM device_ownership o JOIN devices d ON d.id=o.device_id
                        JOIN nodes n ON n.id=d.node_id WHERE o.request_id=%s""",(request_id,))
             devices=c.fetchall()
             if expected_devices is not None:

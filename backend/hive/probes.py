@@ -1,5 +1,5 @@
 """Agentless admission probes, shared by onboarding and resource allocation."""
-from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import posixpath
@@ -59,6 +59,63 @@ def parse_mounts(output, extra_paths=()):
     if len({mount['path'] for mount in result}) != len(result):
         raise ValueError('Ambiguous duplicate mount targets')
     return result
+
+
+def _share_groups(mounts_by_node, connections):
+    """Source identities and matching paths suggest probes, never prove sharing."""
+    groups = []
+    for ident, mounts in mounts_by_node.items():
+        for mount in mounts:
+            if not mount.get('candidate_id') or not mount.get('readable') or not mount.get('writable'):
+                continue
+            keys = {('source', mount['candidate_id']), ('path', mount['path'])}
+            members = [(connections[ident], mount)]
+            # Merge connected candidates, including hostname/IP aliases. Multiple
+            # paths from a single participant remain ambiguous and fail closed.
+            remaining = []
+            for group_keys, group_members in groups:
+                if keys & group_keys:
+                    keys |= group_keys
+                    members.extend(group_members)
+                else:
+                    remaining.append((group_keys, group_members))
+            # Newly merged keys may connect an earlier group too.
+            while any(keys & other_keys for other_keys, _ in remaining):
+                next_remaining = []
+                for other_keys, other_members in remaining:
+                    if keys & other_keys:
+                        keys |= other_keys
+                        members.extend(other_members)
+                    else:
+                        next_remaining.append((other_keys, other_members))
+                remaining = next_remaining
+            groups = remaining + [(keys, members)]
+    return [members for _, members in groups]
+
+
+def _matching_share_mounts(node, mounts, storage_id):
+    """Resolve a verified group to fresh mount evidence without trusting the path alone."""
+    previous = decode(node.get('mounts'), []) or []
+    identities = {(mount.get('path'), mount.get('candidate_id')) for mount in previous
+                  if mount.get('status') == 'verified' and mount.get('shared_storage_id') == storage_id
+                  and mount.get('candidate_id')}
+    return [mount for mount in mounts
+            if mount.get('candidate_id') and
+            ((mount['path'], mount['candidate_id']) in identities or mount['candidate_id'] == storage_id)]
+
+
+def _retain_share_history(node, mounts):
+    # A selection rechecks one share. Do not erase another share's historical
+    # group mapping; retain its original timestamp, never claim a fresh check.
+    previous = {(mount.get('path'), mount.get('candidate_id')): mount
+                for mount in (decode(node.get('mounts'), []) or [])
+                if mount.get('status') == 'verified' and mount.get('shared_storage_id')}
+    for mount in mounts:
+        old = previous.get((mount['path'], mount.get('candidate_id')))
+        if old and mount.get('readable') and mount.get('writable'):
+            for key in ('status', 'shared_storage_id', 'checked_at', 'cleanup', 'detail'):
+                if key in old:
+                    mount[key] = old[key]
 
 
 class AdmissionProbe:
@@ -130,19 +187,31 @@ class AdmissionProbe:
             result = self._adapter(source).connectivity(source, target, source_device, target_device)
         except (DomainError, ValueError):
             result = {'status': 'unknown', 'detail': 'NPU probe unavailable'}
+        return self._record_pair(source_device, target_device, host_result, result)
+
+    def _record_pair(self, source_device, target_device, host_result, result, cursor=None):
         status = result.get('status', 'unknown')
         if host_result['status'] != 'passed':
             status = host_result['status']
         detail = {'management': host_result, 'npu': result}
-        with self.db.transaction() as cursor:
-            cursor.execute('INSERT INTO connectivity_checks (source_device,target_device,status,detail,checked_at) '
+        def record(db_cursor):
+            db_cursor.execute('INSERT INTO connectivity_checks (source_device,target_device,status,detail,checked_at) '
                            'VALUES (%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE '
                            'status=VALUES(status),detail=VALUES(detail),checked_at=VALUES(checked_at)',
                            (source_device['id'], target_device['id'], status, encode(detail), now()))
+        if cursor is None:
+            with self.db.transaction() as db_cursor:
+                record(db_cursor)
+        else:
+            record(cursor)
         return {'source_device': source_device['id'], 'target_device': target_device['id'],
                 'status': status, 'detail': detail}
 
     def _network(self, selected, connections):
+        adapter_names = {connections[item['node_id']].get('adapter', 'ascend') for item in selected}
+        adapter = self.adapters.get(next(iter(adapter_names))) if len(adapter_names) == 1 else None
+        if adapter is not None and callable(getattr(adapter, 'connectivity_many', None)):
+            return self._network_many(selected, connections, adapter)
         results, host_checks = [], {}
         for source_device in selected:
             for target_device in selected:
@@ -154,6 +223,43 @@ class AdmissionProbe:
                     host_checks[pair] = self._host_check(connections[source_id], connections[target_id])
                 results.append(self._pair(connections[source_id], connections[target_id],
                                           source_device, target_device, host_checks[pair]))
+        return results
+
+    def _network_many(self, selected, connections, adapter):
+        node_ids = sorted({item['node_id'] for item in selected})
+        nodes = [dict(connections[ident], devices=[item for item in selected if item['node_id'] == ident])
+                 for ident in node_ids]
+        host_pairs = [(source, target) for source in node_ids for target in node_ids if source != target]
+        if not host_pairs:
+            return []
+        def check(pair):
+            source, target = pair
+            return pair, self._host_check(connections[source], connections[target])
+        with ThreadPoolExecutor(max_workers=min(8, len(host_pairs))) as pool:
+            host_checks = dict(pool.map(check, host_pairs))
+        try:
+            batch = adapter.connectivity_many(nodes)
+            evidence, duplicates = {}, set()
+            for result in batch:
+                key = (result['source_device'], result['target_device'])
+                if key in evidence:
+                    duplicates.add(key)
+                evidence[key] = result
+            for key in duplicates:
+                evidence.pop(key, None)
+        except (DomainError, ValueError, KeyError, TypeError):
+            evidence = {}
+        results = []
+        with self.db.transaction() as cursor:
+            for source in selected:
+                for target in selected:
+                    if source['node_id'] == target['node_id']:
+                        continue
+                    result = evidence.get((source['id'], target['id']))
+                    if not result or result.get('source_node') != source['node_id'] or result.get('target_node') != target['node_id']:
+                        result = {'status': 'unknown', 'detail': 'NPU batch probe evidence missing or ambiguous'}
+                    results.append(self._record_pair(source, target,
+                                   host_checks[(source['node_id'], target['node_id'])], result, cursor))
         return results
 
     def _verify_share(self, members, storage_id):
@@ -229,23 +335,27 @@ class AdmissionProbe:
         for peer in peers:
             if peer['id'] not in connections:
                 continue
-            selected = [dict(device, node_id=node_id) for device in node.get('devices', [])]
-            selected += [dict(device, node_id=peer['id']) for device in connections[peer['id']].get('devices', [])]
+            # Admission is a bounded node-level smoke check. Allocation still
+            # verifies every directed pair of the actually requested devices.
+            selected = [dict(device, node_id=node_id) for device in node.get('devices', [])[:1]]
+            selected += [dict(device, node_id=peer['id']) for device in connections[peer['id']].get('devices', [])[:1]]
             network.extend(self._network(selected, connections))
-        groups = defaultdict(list)
-        for ident, mounts in mounts_by_node.items():
-            for mount in mounts:
-                if mount['candidate_id'] and mount['readable'] and mount['writable']:
-                    groups[mount['candidate_id']].append((connections[ident], mount))
-        for storage_id, members in groups.items():
+        for members in _share_groups(mounts_by_node, connections):
             # Multiple aliases of a share on one host need explicit admin selection, not guessing.
             if len(members) > 1 and len({member[0]['id'] for member in members}) == len(members):
+                sources = sorted({mount['candidate_id'] for _, mount in members})
+                # Preserve legacy IDs when the actual mount sources agree. Alias
+                # groups get their own ID; each mount keeps its source candidate_id.
+                storage_id = sources[0] if len(sources) == 1 else 'shared-' + hashlib.sha256(
+                    encode([node.get('cluster_name'), sources,
+                            sorted({mount['path'] for _, mount in members})]).encode()).hexdigest()[:24]
                 self._verify_share(members, storage_id)
         for ident, mounts in mounts_by_node.items():
             self.inventory.record_probe(ident, mounts=mounts)
         summary = {'checked_at': str(now()), 'peer_count': len(peers),
                    'checks': len(network), 'passed': sum(item['status'] == 'passed' for item in network),
-                   'errors': errors, 'detail': 'No peer nodes' if not peers else 'Directed device pairs checked'}
+                   'errors': errors, 'scope': 'representative',
+                   'detail': 'No peer nodes' if not peers else 'One NPU per node checked; selected allocation devices require full recheck'}
         self.inventory.record_probe(node_id, metadata={'admission': summary}, clear_requested=True)
         return {'summary': summary, 'connectivity': network, 'mounts': mounts_by_node.get(node_id, [])}
 
@@ -262,8 +372,9 @@ class AdmissionProbe:
             members, mounts_by_node = [], {}
             for ident, node in connections.items():
                 mounts = self.discover_mounts(node)
+                _retain_share_history(node, mounts)
                 mounts_by_node[ident] = mounts
-                matching = [mount for mount in mounts if mount['candidate_id'] == shared_storage_id]
+                matching = _matching_share_mounts(node, mounts, shared_storage_id)
                 if len(matching) != 1:
                     self.inventory.record_probe(ident, mounts=mounts)
                     raise DomainError('Required shared storage is absent or ambiguous on a selected node')
@@ -277,10 +388,11 @@ class AdmissionProbe:
                     try:
                         peer = self.inventory.connection(brief['id'])
                         peer_mounts = self.discover_mounts(peer)
+                        _retain_share_history(peer, peer_mounts)
                     except DomainError:
                         continue
-                    matching = [mount for mount in peer_mounts if mount['candidate_id'] == shared_storage_id
-                                and mount['readable'] and mount['writable']]
+                    matching = [mount for mount in _matching_share_mounts(peer, peer_mounts, shared_storage_id)
+                                if mount['readable'] and mount['writable']]
                     if len(matching) == 1:
                         members.append((peer, matching[0]))
                         mounts_by_node[peer['id']] = peer_mounts

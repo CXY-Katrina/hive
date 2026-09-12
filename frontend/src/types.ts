@@ -16,7 +16,7 @@ export interface ResourceSpec { generation: string; model: string; mode: 'partia
 export interface Assignment { device_id?: ID; node_id?: ID; host: string; slot?: number | string; slots?: string[]; node_name?: string; result?: {exit_code?: number}; status?: string }
 export interface ResourceRequest { id: ID; owner_name: string; purpose: string; status: string; reason?: string; spec: ResourceSpec; created_at: string; protected_until?: string; devices: Assignment[] }
 export interface Task { id: ID; name: string; owner_name: string; status: string; reason?: string; request_id?: ID; created_at: string; started_at?: string; finished_at?: string; ended_at?: string; exit_code?: number; spec: { resource?: ResourceSpec; timeout_seconds?: number }; nodes: Assignment[] }
-export interface Sample { sampled_at: string; ai_core: number | null; memory_used: number | null; quality: string; extensions?: Record<string, number | null> }
+export interface Sample { sampled_at: string; ai_core: number | null; memory_used: number | null; quality: string; sample_interval_seconds?: number; extensions?: Record<string, number | null> }
 export interface MetricDescriptor { key: string; label?: string; name?: string; unit: string; scope?: string; display?: string; description?: string }
 export interface Credentials { host: string; port: number; ssh_user: string; password: string }
 export interface TaskLogs { nodes: { node_id: ID; host: string; text: string; status: string }[] }

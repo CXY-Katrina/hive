@@ -4,6 +4,7 @@ import shlex
 
 from .domain import DomainError, SYSTEM, decode, encode, now
 from .policy import evaluate_lease
+from .inventory import idle_memory_limit
 
 
 def cleanup_targets(devices, allocated_ids):
@@ -111,7 +112,7 @@ class Cleanup:
                             not device.get("process_complete") or decode(device.get("processes"), []) or
                             device.get("ai_core") != 0 or
                             (device.get("baseline_bytes", 0) > 0 and not device.get("baseline_confirmed")) or
-                            device.get("memory_used") is None or device["memory_used"] > device["baseline_bytes"]):
+                            device.get("memory_used") is None or device["memory_used"] > idle_memory_limit(device)):
                         raise DomainError("进程/计算/显存未恢复为空闲，保留卡锁")
             return bool(self.resources.finish_release(request_id, epoch))
         except Exception as exc:

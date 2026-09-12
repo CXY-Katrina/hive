@@ -16,10 +16,19 @@ identity() {
   printf '%s' "${20}"
 }
 session_members() {
-  local path raw rest member
+  local path raw rest member candidates status
   local -a fields
-  for path in /proc/[0-9]*/stat; do
-    if ! raw=$(<"$path"); then
+  # Bound Bash work to this attempt's session; procps scans busy hosts in C.
+  # Empty selection exits 1; every other failure stays unconfirmed.
+  if candidates=$(ps -s "$1" -o pid= 2>&1); then :
+  else
+    status=$?
+    [[ $status = 1 && -z $candidates ]] || return 1
+  fi
+  for member in $candidates; do
+    [[ $member =~ ^[0-9]+$ ]] || return 1
+    path=/proc/$member/stat
+    if ! { IFS= read -r raw <"$path"; } 2>/dev/null; then
       [[ ! -e $path ]] && continue
       return 1
     fi
@@ -27,7 +36,6 @@ session_members() {
     read -ra fields <<<"$rest"
     [[ ${#fields[@]} -ge 20 ]] || return 1
     if [[ ${fields[3]} = "$1" && ${fields[0]} != Z ]]; then
-      member=${path#/proc/}; member=${member%/stat}
       printf '%s %s\n' "$member" "${fields[19]}"
     fi
   done

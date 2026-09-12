@@ -34,7 +34,7 @@ class Database:
     def all(self, sql, args=()):
         with self.transaction() as cursor:
             cursor.execute(sql, args)
-            return cursor.fetchall()
+            return list(cursor.fetchall())
 
     def one(self, sql, args=()):
         rows = self.all(sql, args)

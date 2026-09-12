@@ -15,10 +15,10 @@ import unittest
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1] / "backend" / "hive" / "scripts"
 LINUX_READY = (sys.platform.startswith("linux") and
-               all(shutil.which(tool) for tool in ("bash", "flock", "setsid", "timeout", "nohup")))
+               all(shutil.which(tool) for tool in ("bash", "flock", "setsid", "timeout", "nohup", "ps")))
 
 
-@unittest.skipUnless(LINUX_READY, "Requires real Linux procfs, flock, setsid and GNU timeout")
+@unittest.skipUnless(LINUX_READY, "Requires real Linux procfs, procps, flock, setsid and GNU timeout")
 class LinuxTaskProtocol(unittest.TestCase):
     def setUp(self):
         self.directory = Path(tempfile.mkdtemp(prefix="hive_protocol_"))

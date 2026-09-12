@@ -1,5 +1,6 @@
 """No nodes contacted: test pair coverage and storage evidence using isolated fakes."""
 from contextlib import contextmanager
+from copy import deepcopy
 import json
 import unittest
 
@@ -32,6 +33,8 @@ class Inventory:
 
     def record_probe(self, ident, mounts=None, metadata=None, clear_requested=False):
         self.recorded.append((ident, mounts, metadata, clear_requested))
+        if mounts is not None:
+            self.nodes[ident]['mounts'] = deepcopy(mounts)
 
 
 class Adapter:
@@ -42,6 +45,21 @@ class Adapter:
         pair = (source_device['id'], target_device['id'])
         self.calls.append(pair)
         return {'status': 'failed' if pair == self.failure else 'passed', 'detail': 'fixture'}
+
+
+class BatchAdapter(Adapter):
+    def __init__(self, missing=False, duplicate=False):
+        super().__init__()
+        self.missing, self.duplicate, self.nodes = missing, duplicate, []
+
+    def connectivity_many(self, nodes):
+        self.nodes = nodes
+        results = [{'source_node': source['id'], 'target_node': target['id'],
+                    'source_device': source_device['id'], 'target_device': target_device['id'],
+                    'status': 'passed', 'detail': 'batch fixture'}
+                   for source in nodes for target in nodes if source['id'] != target['id']
+                   for source_device in source['devices'] for target_device in target['devices']]
+        return results[1:] if self.missing else results + ([results[0]] if self.duplicate else [])
 
 
 class Transport:
@@ -61,6 +79,103 @@ def node(ident):
 
 
 class ProbeTests(unittest.TestCase):
+    def test_admission_is_representative_but_allocation_still_checks_every_card(self):
+        nodes = [node(str(index)) for index in range(1, 4)]
+        adapter, inventory = Adapter(), Inventory(nodes)
+        probe = AdmissionProbe(DB(), Transport(), {'ascend': adapter}, inventory)
+        probe.discover_mounts = lambda node: []
+        report = probe.run('1')
+        self.assertEqual(report['summary']['scope'], 'representative')
+        self.assertEqual(set(adapter.calls), {('1a', '2a'), ('2a', '1a'), ('1a', '3a'), ('3a', '1a')})
+        adapter.calls.clear()
+        probe.check_selection([d for n in nodes for d in n['devices']], require_interconnect=True)
+        self.assertEqual(len(adapter.calls), 24)
+
+    def alias_probe(self, fail_read=False):
+        nodes = [node(str(index)) for index in range(1, 6)]
+        transport, inventory = Transport(fail_read), Inventory(nodes)
+        probe = AdmissionProbe(DB(), transport, {}, inventory)
+        discovered = {}
+        for index, item in enumerate(nodes):
+            sources = ('suzblue.server:/share', ':/weight') if index < 2 else (
+                '178.27.1.16:/share', '178.27.1.18:/weight')
+            mounts = parse_mounts(json.dumps({'filesystems': [
+                {'target': path, 'source': source, 'fstype': 'nfs4', 'options': 'rw'}
+                for path, source in zip(('/mnt/share', '/mnt/weight'), sources)]}))
+            for mount in mounts:
+                mount['readable'] = mount['writable'] = True
+            discovered[item['id']] = mounts
+        probe.discover_mounts = lambda item: deepcopy(discovered[item['id']])
+        probe._network = lambda selected, connections: []
+        return probe, transport, inventory, discovered
+
+    def test_admission_verifies_all_five_alias_mounts_without_changing_source_ids(self):
+        probe, transport, inventory, discovered = self.alias_probe()
+        probe.run('1')
+        for index in (0, 1):
+            mounts = [item['mounts'][index] for item in inventory.nodes.values()]
+            self.assertEqual(len({mount['shared_storage_id'] for mount in mounts}), 1)
+            self.assertTrue(all(mount['status'] == 'verified' for mount in mounts))
+            self.assertEqual(len({mount['candidate_id'] for mount in mounts}), 2)
+            for ident, item in inventory.nodes.items():
+                self.assertEqual(item['mounts'][index]['candidate_id'], discovered[ident][index]['candidate_id'])
+        self.assertNotEqual(inventory.nodes['1']['mounts'][0]['shared_storage_id'],
+                            inventory.nodes['1']['mounts'][1]['shared_storage_id'])
+        # Each share: five writers, every writer read on every node, five cleanups.
+        self.assertEqual(len(transport.calls), 2 * (5 + 25 + 5))
+
+    def test_matching_paths_without_shared_contents_never_get_verified(self):
+        probe, _, inventory, _ = self.alias_probe(fail_read=True)
+        probe.run('1')
+        self.assertTrue(all(mount['shared_storage_id'] is None
+                            for item in inventory.nodes.values() for mount in item['mounts']))
+
+    def test_selection_resolves_verified_alias_group_and_rechecks_actual_contents(self):
+        probe, transport, inventory, _ = self.alias_probe()
+        probe.run('1')
+        storage_id = inventory.nodes['1']['mounts'][0]['shared_storage_id']
+        transport.calls.clear()
+        devices = [item['devices'][0] for item in inventory.nodes.values()]
+        self.assertTrue(probe.check_selection(devices, shared_storage_id=storage_id))
+        self.assertEqual(len(transport.calls), 35)
+        transport.fail_read = True
+        with self.assertRaises(DomainError):
+            probe.check_selection(devices, shared_storage_id=storage_id)
+        self.assertTrue(all(item['mounts'][0]['shared_storage_id'] is None
+                            for item in inventory.nodes.values()))
+
+    def test_selection_rejects_changed_source_even_when_mount_path_matches(self):
+        probe, transport, inventory, discovered = self.alias_probe()
+        probe.run('1')
+        storage_id = inventory.nodes['1']['mounts'][0]['shared_storage_id']
+        discovered['1'][0]['candidate_id'] = 'share-different-storage'
+        transport.calls.clear()
+        with self.assertRaises(DomainError):
+            probe.check_selection(inventory.nodes['1']['devices'], shared_storage_id=storage_id)
+        self.assertEqual(transport.calls, [])
+
+    def test_single_node_alias_selection_still_requires_a_peer(self):
+        probe, transport, inventory, _ = self.alias_probe()
+        probe.run('1')
+        storage_id = inventory.nodes['1']['mounts'][0]['shared_storage_id']
+        transport.calls.clear()
+        self.assertTrue(probe.check_selection(inventory.nodes['1']['devices'], shared_storage_id=storage_id))
+        self.assertEqual(len(transport.calls), 8)
+
+    def test_selection_preserves_other_share_history_for_later_reverification(self):
+        probe, transport, inventory, _ = self.alias_probe()
+        probe.run('1')
+        shares = deepcopy(inventory.nodes['1']['mounts'])
+        timestamps = {ident: item['mounts'][1]['checked_at'] for ident, item in inventory.nodes.items()}
+        devices = [item['devices'][0] for item in inventory.nodes.values()]
+        probe.check_selection(devices, shared_storage_id=shares[0]['shared_storage_id'])
+        for ident, item in inventory.nodes.items():
+            self.assertEqual(item['mounts'][1]['shared_storage_id'], shares[1]['shared_storage_id'])
+            self.assertEqual(item['mounts'][1]['checked_at'], timestamps[ident])
+        transport.calls.clear()
+        self.assertTrue(probe.check_selection(devices, shared_storage_id=shares[1]['shared_storage_id']))
+        self.assertEqual(len(transport.calls), 35)
+
     def test_local_mnt_is_not_shared(self):
         output = json.dumps({'filesystems': [{'target': '/mnt', 'source': '/dev/sda1', 'fstype': 'ext4', 'options': 'rw'}]})
         mount = parse_mounts(output)[0]
@@ -95,6 +210,24 @@ class ProbeTests(unittest.TestCase):
         self.assertIn(('3b', '1a'), adapter.calls)
         self.assertEqual(len(transport.calls), 6)
         self.assertTrue(all('/2222' in script and script.startswith('set -e') for _, script in transport.calls))
+
+    def test_batch_connectivity_receives_only_selected_cards_and_records_all_directions(self):
+        nodes = [node(str(index)) for index in range(1, 4)]
+        adapter, transport, db = BatchAdapter(), Transport(), DB()
+        probe = AdmissionProbe(db, transport, {'ascend': adapter}, Inventory(nodes))
+        devices = [item['devices'][0] for item in nodes]
+        self.assertTrue(probe.check_selection(devices, require_interconnect=True))
+        self.assertEqual([len(item['devices']) for item in adapter.nodes], [1, 1, 1])
+        self.assertEqual(len(db.calls), 6)
+        self.assertEqual(len(transport.calls), 6)
+        self.assertEqual(adapter.calls, [])
+
+    def test_batch_missing_or_duplicate_evidence_rejects_selection(self):
+        nodes = [node('1'), node('2')]
+        for adapter in (BatchAdapter(missing=True), BatchAdapter(duplicate=True)):
+            probe = AdmissionProbe(DB(), Transport(), {'ascend': adapter}, Inventory(nodes))
+            with self.assertRaises(DomainError):
+                probe.check_selection([item['devices'][0] for item in nodes], require_interconnect=True)
 
     def test_nontransitive_failure_rejects_whole_selection(self):
         nodes = [node(str(index)) for index in range(1, 4)]

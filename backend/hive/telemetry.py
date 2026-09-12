@@ -100,9 +100,13 @@ class Telemetry:
                 c.execute("UPDATE nodes SET probe_requested=TRUE WHERE id=%s",(node_id,))
 
     def history(self, device_id, minutes=10):
-        return self.db.all("""SELECT sampled_at,boot_id,ai_core,memory_used,memory_total,quality,extensions
+        rows = self.db.all("""SELECT sampled_at,boot_id,ai_core,memory_used,memory_total,quality,extensions
                             FROM device_samples WHERE device_id=%s AND sampled_at>=%s ORDER BY sampled_at""",
                            (device_id, now()-timedelta(minutes=minutes, seconds=self.settings.sample_seconds * 2)))
+        for row in rows:
+            row['extensions'] = decode(row['extensions'], {})
+            row['sample_interval_seconds'] = self.settings.sample_seconds
+        return rows
 
     def window(self, devices):
         return {d["id"]: [r for r in self.history(d["id"]) if r["sampled_at"] >= self.started_at] for d in devices}

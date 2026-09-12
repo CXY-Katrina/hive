@@ -6,6 +6,18 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from .domain import DomainError, encode, decode, now, uid
 
 
+ASCEND_IDLE_MEMORY_TOLERANCE_BYTES = 2 * 1024**2
+
+
+def idle_memory_limit(device):
+    """Only an explicitly confirmed Ascend baseline permits driver jitter."""
+    if not device.get("baseline_confirmed"):
+        return 0
+    baseline = max(0, device.get("baseline_bytes", 0))
+    tolerance = ASCEND_IDLE_MEMORY_TOLERANCE_BYTES if device.get("adapter") == "ascend" else 0
+    return baseline + tolerance
+
+
 def device_status(device, stamp=None, stale_seconds=45):
     stamp = stamp or now()
     if device.get("maintenance"):
@@ -22,7 +34,7 @@ def device_status(device, stamp=None, stale_seconds=45):
     used = device.get("memory_used")
     if used is None:
         return "unknown"
-    if used > device.get("baseline_bytes", 0):
+    if used > idle_memory_limit(device):
         busy = True
     return "external" if busy else "available"
 
@@ -82,7 +94,7 @@ class Inventory:
     def list_nodes(self):
         nodes = self.db.all("SELECT id,name,cluster_name,host,port,ssh_user,generation,model,adapter,vendor,device_kind,maintenance,status,reason,boot_id,sampled_at,metadata,mounts,probe_requested,created_at FROM nodes ORDER BY host,id")
         devices = self.db.all("""SELECT d.*,o.request_id,r.owner_name,r.protected_until,r.status AS allocation_status,
-                              n.maintenance FROM devices d JOIN nodes n ON n.id=d.node_id
+                              n.maintenance,n.adapter FROM devices d JOIN nodes n ON n.id=d.node_id
                               LEFT JOIN device_ownership o ON o.device_id=d.id
                               LEFT JOIN resource_requests r ON r.id=o.request_id ORDER BY d.node_id,d.slot""")
         by_node = {}

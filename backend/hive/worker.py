@@ -117,9 +117,12 @@ class Worker:
         for row in s.db.all("SELECT id FROM resource_requests WHERE status='QUEUED' ORDER BY created_at"):
             req=s.resources.get(row["id"])
             generation=(req["spec"].get("vendor","ascend"),req["spec"].get("device_kind","npu"),req["spec"]["generation"])
-            if generation in pools:
-                continue
-            pools.add(generation)
+            # Immediate attempts do not join (or block) the generation FIFO.
+            # They still use the same transactional reservation and card locks.
+            if req["spec"].get("queue",True):
+                if generation in pools:
+                    continue
+                pools.add(generation)
             if len(self.preflights)>=2:
                 break
             reserved=s.resources.reserve(req["id"])

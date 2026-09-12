@@ -137,6 +137,30 @@ class WorkerPreflightTests(unittest.TestCase):
         worker.tick()
         self.assertEqual(submitted,[str(i) for i in range(8)])
 
+    def check_queue_attempts(self, specs):
+        worker,_,_,_,_=self.setup_worker()
+        requests={ident:dict(id=ident,spec={'generation':'A2',**spec}) for ident,spec in specs}
+        attempted=[]
+        worker.s.db=SimpleNamespace(one=lambda *a:None,all=lambda sql,*a:
+                    [{'id':ident} for ident in requests] if "status='QUEUED'" in sql else [])
+        worker.s.reporting=SimpleNamespace(maintain=lambda:None)
+        worker.s.resources.expire_queued=lambda:None
+        worker.s.resources.get=lambda ident:requests[ident]
+        worker.s.resources.reserve=lambda ident:attempted.append(ident)
+        worker.tick()
+        return attempted
+
+    def test_immediate_request_attempts_past_blocked_fifo_head(self):
+        attempted=self.check_queue_attempts([
+            ('head',{'queue':True}),('immediate',{'queue':False}),('follower',{'queue':True})])
+        self.assertEqual(attempted,['head','immediate'])
+
+    def test_immediate_request_does_not_block_queued_request(self):
+        attempted=self.check_queue_attempts([
+            ('immediate',{'queue':False}),('head',{'queue':True}),('follower',{'queue':True}),
+            ('another-immediate',{'queue':False})])
+        self.assertEqual(attempted,['immediate','head','another-immediate'])
+
 
 if __name__ == '__main__':
     unittest.main()

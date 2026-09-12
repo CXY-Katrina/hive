@@ -65,6 +65,11 @@ class MySQLIntegration(unittest.TestCase):
         self.telemetry.ingest(n["id"],snapshot)
         return self.inventory.get(n["id"])
 
+    def test_empty_database_result_is_a_list_for_idle_worker_sorting(self):
+        rows = self.db.all("SELECT id FROM resource_requests WHERE 1=0")
+        self.assertEqual(rows, [])
+        rows.sort(key=lambda row: row['id'])
+
     def request(self,actor=None,**kwargs):
         spec=ResourceSpec(generation="A2",**kwargs).model_dump()
         from hive.domain import uid
@@ -230,3 +235,72 @@ class MySQLIntegration(unittest.TestCase):
         req=self.request(shared_storage_id='shared')
         self.resources.reserve(req['id'])
         self.assertEqual({d['node_id'] for d in self.resources.devices(req['id'])},{b['id']})
+
+    def test_request_history_limit_preserves_every_nonterminal_request(self):
+        from hive.domain import encode, uid
+        self.node(cards=1)
+        active=self.request()
+        reservation=self.resources.reserve(active['id'])
+        self.resources.deliver(active['id'],reservation['version'])
+        live={active['id']}
+        for status in ('QUEUED','RESERVED','RELEASING'):
+            request=self.request()
+            live.add(request['id'])
+            with self.db.transaction() as c:
+                c.execute('UPDATE resource_requests SET status=%s WHERE id=%s',(status,request['id']))
+        stamp=now()
+        terminal_ids=[uid() for _ in range(505)]
+        spec=encode(ResourceSpec(generation='A2').model_dump())
+        with self.db.transaction() as c:
+            c.execute('UPDATE resource_requests SET created_at=%s',(stamp-timedelta(days=1),))
+            c.executemany('''INSERT INTO resource_requests
+                (id,owner_user_id,owner_name,idempotency_key,body_hash,spec,purpose,status,created_at)
+                VALUES (%s,%s,%s,%s,%s,%s,'debug',%s,%s)''',[
+                (ident,self.alice.id,self.alice.username,ident,'history-fixture',spec,
+                 ('RELEASED','CANCELLED','FAILED')[index%3],stamp-timedelta(seconds=index))
+                for index,ident in enumerate(terminal_ids)])
+        rows=self.resources.list()
+        self.assertEqual(len(rows),504)
+        self.assertEqual({row['id'] for row in rows},live|set(terminal_ids[:500]))
+        self.assertEqual([row['created_at'] for row in rows],sorted((row['created_at'] for row in rows),reverse=True))
+        current=next(row for row in rows if row['id']==active['id'])
+        self.assertEqual(len(current['devices']),1)
+        self.assertEqual(current['spec']['generation'],'A2')
+
+    def test_immediate_reservation_bypasses_unsatisfied_queued_request(self):
+        self.node(cards=1)
+        head=self.request(cards_per_node=2,queue=True)
+        self.assertIsNone(self.resources.reserve(head['id']))
+        immediate=self.request(queue=False)
+        self.assertIsNotNone(self.resources.reserve(immediate['id']))
+        self.assertEqual(self.resources.get(head['id'])['status'],'QUEUED')
+        unavailable=self.request(queue=False)
+        self.assertIsNone(self.resources.reserve(unavailable['id']))
+        self.assertEqual(self.resources.get(unavailable['id'])['status'],'FAILED')
+
+    def test_confirmed_driver_baseline_tolerance_matches_allocation_and_release(self):
+        from hive.cleanup import Cleanup
+        from unittest.mock import Mock
+        node=self.node(cards=1)
+        ident=node['devices'][0]['id']
+        baseline=3*1024**3
+        with self.db.transaction() as c:
+            c.execute('UPDATE devices SET memory_used=%s WHERE id=%s',(baseline,ident))
+        self.inventory.confirm_baseline(ident,self.admin)
+        with self.db.transaction() as c:
+            c.execute('UPDATE devices SET memory_used=%s WHERE id=%s',(baseline+2*1024**2,ident))
+        self.assertEqual(self.inventory.get(node['id'])['devices'][0]['status'],'available')
+        request=self.request()
+        reservation=self.resources.reserve(request['id'])
+        self.assertIsNotNone(reservation)
+        self.assertTrue(self.resources.deliver(request['id'],reservation['version']))
+        self.resources.release(request['id'],self.alice)
+        cleanup=Cleanup(self.db,Mock(),self.inventory,Mock(),self.resources)
+        with self.db.transaction() as c:
+            c.execute('UPDATE devices SET memory_used=%s WHERE id=%s',(baseline+2*1024**2+1,ident))
+        self.assertFalse(cleanup.run(request['id']))
+        self.assertEqual(self.resources.get(request['id'])['status'],'RELEASING')
+        with self.db.transaction() as c:
+            c.execute('UPDATE devices SET memory_used=%s WHERE id=%s',(baseline+2*1024**2,ident))
+        self.assertTrue(cleanup.run(request['id']))
+        self.assertEqual(self.resources.get(request['id'])['status'],'RELEASED')

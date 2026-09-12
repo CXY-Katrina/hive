@@ -67,10 +67,11 @@
 
 - 在中心机配置 HIVE_KNOWN_HOSTS 指向已核验的 SSH 主机公钥文件。可用现有 SSH 工具取得公钥并核对指纹后登记；平台拒绝未知/变化的主机密钥，不自动信任。
 - 管理员在“集群管理”输入节点 IP、端口、SSH 账号/密码、A2/A3/A5 和机型。worker 通过 SSH 发现真实卡列表；没有完整有效采样时不会分配。
-- 节点需已有 SSH/SFTP、Bash、procfs、npu-smi、驱动工具 hccn_tool；任务还使用 timeout、nohup、setsid、flock、head、cat、mv 等系统工具。Docker 信息仅在节点已有 Docker 时查询，不为平台强制安装 Docker。
-- 对无业务但驱动常驻显存非零的卡，可在纳管详情确认空闲显存基线；平台要求该卡无申请、无 PID、AI Core=0 且采集完整，不能自动把任意显存占用学习为空闲。
+- 节点需已有 SSH/SFTP、Bash、procfs、npu-smi、驱动工具 hccn_tool；任务还使用 timeout、nohup、setsid、flock、procps（ps）、head、cat、mv 等系统工具。Docker 信息仅在节点已有 Docker 时查询，不为平台强制安装 Docker。
+- 对无业务但驱动常驻显存非零的卡，可在纳管详情确认空闲显存基线；平台要求该卡无申请、无 PID、AI Core=0 且采集完整，不能自动把任意显存占用学习为空闲。已确认的 Ascend 基线允许 2 MiB 读数波动；未确认和其他硬件不默认获得容差。
 - A3 互联如缺少 hccn 编号，在纳管详情录入 slot → hccn_id 映射，例如 `{"0:0":0,"0:1":1}`，必须根据实机确定。A5 的互联命令尚未验证，保持未支持；不会将主机 SSH 可达当作 NPU 互联通过。
-- 共享盘优先检查 /mnt 挂载，再用专用随机小文件跨节点校验，检查只清理本次文件。仅存在同名目录不会被判断为共享。
+- 纳管互联每机选一个 NPU 做有方向抽检；申请要求互联时，对最终选中的全部卡组合复验。抽检不代表所有卡组合或业务端口已经验证。
+- 共享盘优先检查 /mnt 挂载，再用专用随机小文件跨节点校验，支持 hostname/IP 源别名，检查只清理本次文件。仅存在同名目录不会被判断为共享。
 
 任务使用分配清单和 ASCEND_RT_VISIBLE_DEVICES，不对共享 root 用户强制隔离。自动任务脚本应前台运行并等待业务子进程，不通过额外 setsid 或 docker -d 逃离受管任务。手工 SSH 调试按平台分配的卡使用；平台外占用会显示并阻止再次分配。
 
@@ -86,7 +87,7 @@ npm run build
 
 默认跳过真实 MySQL 集成测试。设置 HIVE_TEST_MYSQL_PORT、可选 HIVE_TEST_MYSQL_USER/HIVE_TEST_MYSQL_PASSWORD 后，测试账号需能创建/删除数据库；测试仅操作自己创建的随机 hive_test_* 库。不要给测试配置业务数据库凭据。Linux 任务协议测试仅在具有实际 Linux /proc 与所需系统命令时运行，Windows 明确跳过。
 
-本轮完成 MySQL 集成与浏览器验收，尚未接入真实 NPU 节点。真实驱动输出、PID/容器映射和 Linux SSH 任务协议仍需现场验收，详见 [实现与验收记录](docs/implementation.md)。
+已接入 5 台真实节点、80 个逻辑 NPU 设备，完成真实采集、容器识别、互联抽检、共享盘、资源申请/归还与 SSH 自检任务；详见 [实机验收记录](docs/real-node-acceptance.md) 和 [实现边界](docs/implementation.md)。
 
 ## 代码与依赖
 

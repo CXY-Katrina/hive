@@ -2,9 +2,11 @@
 
 Reference formats: Huawei npu-smi `info`, `info -m` command reference;
 docs/research/node-connectivity-and-containers.md for hccn_tool probes.
-Actual A2/A3/A5 driver fixtures must be validated during hardware acceptance.
+Sanitized 25.5.0/26.x physical-node fixtures cover the observed table layouts;
+generation-specific commands still require hardware acceptance.
 """
 import base64
+from concurrent.futures import ThreadPoolExecutor
 import ipaddress
 import re
 import shlex
@@ -56,22 +58,29 @@ def required(data, name):
 
 
 def parse_mapping(text):
-    if not re.search(r'NPU\s+ID\s+Chip\s+ID\s+Chip\s+Logic\s+ID', text):
+    header = re.search(r'^\s*NPU\s+ID\s+Chip\s+ID\s+Chip\s+Logic\s+ID\s+(Chip\s+Phy-ID\s+)?Chip\s+Name\s*$', text, re.M)
+    if not header:
         raise ValueError('Unsupported device mapping header')
-    found, logical_ids = {}, set()
+    has_physical_id = bool(header.group(1))
+    found, logical_ids, physical_ids = {}, set(), set()
     for line in text.splitlines():
-        if not line.strip() or 'NPU' in line and 'Chip' in line:
+        if not line.strip() or line.strip() == header.group().strip():
             continue
-        match = re.fullmatch(r'\s*(-?\d+)\s+(\d+)\s+(\d+|-)\s+(.+?)\s*', line)
+        pattern = r'\s*(-?\d+)\s+(\d+)\s+(\d+|-)\s+' + (r'(\d+|-)\s+' if has_physical_id else '') + r'(.+?)\s*'
+        match = re.fullmatch(pattern, line)
         if not match:
             raise ValueError('Unsupported device mapping row')
-        npu, chip, logical, name = match.groups()
-        if logical == '-' and name.lower() in ('mcu', 'management controller'):
+        npu, chip, logical = match.groups()[:3]
+        physical = match.group(4) if has_physical_id else logical
+        name = match.groups()[-1]
+        if logical == physical == '-' and name.lower() in ('mcu', 'management controller'):
             continue
-        if npu.startswith('-') or logical == '-' or (npu, chip) in found or logical in logical_ids:
+        if (npu.startswith('-') or logical == '-' or physical == '-'
+                or (npu, chip) in found or logical in logical_ids or physical in physical_ids):
             raise ValueError('Unavailable or ambiguous device mapping')
         found[(npu, chip)] = logical
         logical_ids.add(logical)
+        physical_ids.add(physical)
     if not found:
         raise ValueError('No valid compute device mapping')
     return found
@@ -85,24 +94,33 @@ def parse_info(text, mapping):
     if not marker:
         raise ValueError('Missing process table')
     metric_text, process_text = text[:marker.start()], text[marker.start():]
-    samples, current_npu, health = {}, None, 'unknown'
+    metric_has_physical_id = bool(re.search(r'\|\s*Chip\s+Phy-ID\s*\|', metric_text))
+    samples, current_npu, health, physical_ids = {}, None, 'unknown', set()
     for line in metric_text.splitlines():
         cells = [cell.strip() for cell in line.strip().strip('|').split('|')]
         if not line.lstrip().startswith('|') or len(cells) < 3:
             continue
-        head = re.match(r'^(\d+)\s+\S+', cells[0])
-        if head:
+        # The current layout has two numeric identifiers in a metric row; inspect
+        # Bus-Id before looking for the NPU/name row to avoid treating Phy-ID as a name.
+        is_metric = bool(re.fullmatch(r'[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.\d', cells[1]))
+        head = re.fullmatch(r'(\d+)\s+\S.*', cells[0])
+        if head and not is_metric:
             current_npu = head.group(1)
             health = cells[1].lower()
             continue
-        if current_npu is None or not re.fullmatch(r'\d+', cells[0]):
+        if not is_metric:
             continue
-        key = (current_npu, cells[0])
+        chip_match = re.fullmatch(r'(\d+)\s+(\d+)' if metric_has_physical_id else r'(\d+)', cells[0])
+        if current_npu is None or not chip_match:
+            raise ValueError('Missing or unrecognized metric device identity')
+        if metric_has_physical_id:
+            physical = chip_match.group(2)
+            if physical in physical_ids:
+                raise ValueError('Duplicate metric physical device identity')
+            physical_ids.add(physical)
+        key = (current_npu, chip_match.group(1))
         if key not in mapping:
             raise ValueError('Metric table and device mapping disagree')
-        # PCI bus address distinguishes metric row from hugepage/auxiliary rows.
-        if not re.fullmatch(r'[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.\d', cells[1]):
-            continue
         value = ' '.join(cells[2:])
         match = re.fullmatch(r'(\d+(?:\.\d+)?)\s+(\d+)\s*/\s*(\d+)\s+(\d+)\s*/\s*(\d+)', value)
         if not match:
@@ -118,6 +136,10 @@ def parse_info(text, mapping):
     lines = [line.strip() for line in process_text.splitlines() if line.strip()]
     if not lines or not re.fullmatch(r'\+[+\-=]+\+', lines[-1]):
         raise ValueError('Unterminated process table')
+    process_header = re.fullmatch(r'\|\s*NPU\s+Chip\s*\|\s*Process id\s*\|\s*Process name\s*\|\s*Process memory\(MB\)\s*\|(\s*Process id in container\s*\|)?', lines[0], re.I)
+    if not process_header:
+        raise ValueError('Unsupported process table header')
+    has_container_pid = bool(process_header.group(1))
     processes, empty, empty_npus, occupied_npus = {}, False, set(), set()
     for line in lines[1:]:
         if re.fullmatch(r'\+[+\-=]+\+', line):
@@ -131,7 +153,11 @@ def parse_info(text, mapping):
                 raise ValueError('Duplicate empty NPU process row')
             empty_npus.add(empty_match.group(1))
             continue
-        match = re.fullmatch(r'\|\s*(\d+)\s+(\d+)\s*\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\|', line)
+        pattern = r'\|\s*(\d+)\s+(\d+)\s*\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\|'
+        if has_container_pid:
+            # Only the host PID is used for /proc, Docker membership, and cleanup.
+            pattern += r'\s*(?:\d+|NA|N/A|-)\s*\|'
+        match = re.fullmatch(pattern, line)
         if not match:
             raise ValueError('Unknown or truncated process row')
         npu, chip, pid, name, _ = match.groups()
@@ -337,6 +363,122 @@ class AscendAdapter:
                     'peer_address': addresses[0], 'tls_switch': tls}
         except (ValueError, KeyError, DomainError) as exc:
             return {'status': 'unknown', 'detail': str(exc)}
+
+    def connectivity_many(self, nodes):
+        """Check all directed cross-node pairs of the supplied devices.
+
+        Endpoint addresses/TLS are queried once per device per invocation, never
+        cached across requests. Independent source nodes run concurrently; each
+        SSH script contains at most four probes and releases the connection.
+        Missing, failed, or truncated command evidence cannot become a pass.
+        """
+        if not isinstance(nodes, (list, tuple)) or len(nodes) > 64:
+            raise ValueError('Connectivity batch exceeds node limit')
+        devices = [(node, device) for node in nodes for device in node.get('devices', [])]
+        if len(devices) > 256 or len({node['id'] for node in nodes}) != len(nodes):
+            raise ValueError('Connectivity batch exceeds device limit or has duplicate nodes')
+        if len({device['id'] for _, device in devices}) != len(devices):
+            raise ValueError('Duplicate connectivity device identity')
+        batch_size, command_timeout = 4, 5
+        configured_workers = getattr(getattr(self.transport, 'settings', None), 'ssh_workers', 4)
+        workers = max(1, min(8, configured_workers, len(nodes)))
+        unknown = lambda detail: {'status': 'unknown', 'detail': detail}
+
+        def command(key, ident, option):
+            return (f'emit {key} timeout --signal=TERM --kill-after=1 {command_timeout} '
+                    f'hccn_tool -i {ident} {option}\n')
+
+        def run_envelope(node, script, command_count):
+            result = self.transport.run(node, PREAMBLE + script + "printf 'HIVE_END\\n'\n",
+                                        timeout=command_count * (command_timeout + 1) + 5)
+            if result.code:
+                raise ValueError('NPU batch command failed or timed out')
+            return sections(result.stdout)
+
+        def endpoints(node):
+            result, pending, used_ids = {}, [], set()
+            for device in node.get('devices', []):
+                try:
+                    if node['generation'] not in ('A2', 'A3'):
+                        raise ValueError('Unsupported generation; no verified probe command')
+                    ident = self._network_id(node, device)
+                    if ident in used_ids:
+                        raise ValueError('Duplicate hccn device mapping')
+                    used_ids.add(ident)
+                    pending.append((device['id'], ident))
+                except (ValueError, KeyError, DomainError) as exc:
+                    result[device['id']] = unknown(str(exc))
+            # An alias would make every result for that node's mapping ambiguous.
+            if any(item.get('detail') == 'Duplicate hccn device mapping' for item in result.values()):
+                return {device['id']: unknown('Duplicate hccn device mapping') for device in node['devices']}
+            mode = 'ip' if node['generation'] == 'A2' else 'vnic'
+            for offset in range(0, len(pending), batch_size):
+                batch = pending[offset:offset + batch_size]
+                script = ''.join(command(f'address_{index}', ident, f'-{mode} -g')
+                                 + command(f'tls_{index}', ident, '-tls -g')
+                                 for index, (_, ident) in enumerate(batch))
+                try:
+                    data = run_envelope(node, script, len(batch) * 2)
+                except (ValueError, KeyError, DomainError) as exc:
+                    result.update({ident: unknown(str(exc)) for ident, _ in batch})
+                    continue
+                for index, (device_id, ident) in enumerate(batch):
+                    try:
+                        addresses = re.findall(r'\b(?:vnic[_ ]?)?(?:ipaddr|ip_address|ip address|ip)\s*[:=]\s*((?:\d{1,3}\.){3}\d{1,3})',
+                                               required(data, f'address_{index}'), re.I)
+                        addresses = list(dict.fromkeys(str(ipaddress.ip_address(value)) for value in addresses))
+                        if len(addresses) != 1:
+                            raise ValueError('NPU address unavailable or ambiguous')
+                        result[device_id] = {'address': addresses[0], 'tls': self._tls(required(data, f'tls_{index}')),
+                                             'hccn_id': ident}
+                    except (ValueError, KeyError, DomainError) as exc:
+                        result[device_id] = unknown(str(exc))
+            return result
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            endpoint_data = {key: value for rows in pool.map(endpoints, nodes) for key, value in rows.items()}
+
+        def source_pairs(source):
+            rows, pending = [], []
+            for source_device in source.get('devices', []):
+                for target, target_device in devices:
+                    if source['id'] == target['id']:
+                        continue
+                    row = {'source_node': source['id'], 'target_node': target['id'],
+                           'source_device': source_device['id'], 'target_device': target_device['id']}
+                    rows.append(row)
+                    left, right = endpoint_data[source_device['id']], endpoint_data[target_device['id']]
+                    if source['generation'] not in ('A2', 'A3') or target['generation'] != source['generation']:
+                        row.update(unknown('Unsupported generation pair; no verified probe command'))
+                    elif 'status' in left or 'status' in right:
+                        row.update(unknown('NPU endpoint unavailable: ' + (left.get('detail') or right.get('detail', 'unknown'))))
+                    elif left['tls'] != right['tls']:
+                        row.update({'status': 'failed', 'detail': 'NPU TLS switch mismatch'})
+                    else:
+                        pending.append((row, left['hccn_id'], right['address'], left['tls']))
+            mode = 'ping' if source['generation'] == 'A2' else 'hccs_ping'
+            for offset in range(0, len(pending), batch_size):
+                batch = pending[offset:offset + batch_size]
+                script = ''.join(command(f'ping_{index}', ident, f'-{mode} -g address {shlex.quote(address)}')
+                                 for index, (_, ident, address, _) in enumerate(batch))
+                try:
+                    data = run_envelope(source, script, len(batch))
+                except (ValueError, KeyError, DomainError) as exc:
+                    for row, _, _, _ in batch:
+                        row.update(unknown(str(exc)))
+                    continue
+                for index, (row, _, address, tls) in enumerate(batch):
+                    try:
+                        ping = required(data, f'ping_{index}')
+                        passed = 'This pkt ping success' in ping and not re.search(r'\b(?:fail(?:ed|ure)?|error)\b', ping, re.I)
+                        row.update({'status': 'passed' if passed else 'failed', 'detail': 'NPU probe completed',
+                                    'peer_address': address, 'tls_switch': tls})
+                    except (ValueError, KeyError, DomainError) as exc:
+                        row.update(unknown(str(exc)))
+            return rows
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            return [row for rows in pool.map(source_pairs, nodes) for row in rows]
 
     @staticmethod
     def _tls(text):
