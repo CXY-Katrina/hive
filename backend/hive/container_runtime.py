@@ -175,7 +175,7 @@ class ContainerRuntime:
         _require(isinstance(environment, dict) and all(isinstance(key, str) and
                  re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', key) and isinstance(value, str) and '\x00' not in value
                  for key, value in environment.items()), 'Invalid task environment')
-        _require(len(json.dumps(environment).encode()) <= 65536, 'Task environment exceeds 64 KiB')
+        _require(len(json.dumps(environment, ensure_ascii=False).encode()) <= 65536, 'Task environment exceeds 64 KiB')
         job = '#!/usr/bin/env bash\nset -euo pipefail\ncd -- ' + shlex.quote(workdir) + '\n'
         job += ''.join('export ' + key + '=' + shlex.quote(value) + '\n' for key, value in sorted(environment.items()))
         job += script + '\n'

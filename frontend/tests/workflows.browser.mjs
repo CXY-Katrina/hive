@@ -58,6 +58,40 @@ async function workspace({ spaces = [], presets = [], initialRuns = [], canReque
   return { page, workflows, submissions, errors, actions, debugRequests };
 }
 
+test('resource choices use buttons and retain selected allocation when creating a task', async () => {
+  const { page } = await workspace();
+  try {
+    await page.getByRole('button', { name: 'A5', exact: true }).click();
+    await page.getByRole('spinbutton', { name: '机器数量', exact: true }).fill('2');
+    assert.equal(await page.getByRole('spinbutton', { name: '每卡最低显存（GiB）', exact: true }).count(), 0);
+    await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: 'A5', exact: true }).getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.getByRole('spinbutton', { name: '机器数量', exact: true }).inputValue(), '2');
+    const resource = await page.locator('.resource-form').boundingBox();
+    const toggle = await page.locator('.workflow-mode').boundingBox();
+    assert.ok(toggle.y < resource.y, 'the task action stays above resource allocation');
+    const composer = await page.locator('.workflow-composer').boundingBox();
+    assert.ok(resource.y < composer.y, 'resource allocation stays before the task composer');
+  } finally { await page.close(); }
+});
+
+test('submitting from Jobs returns to the incomplete environment instead of silently failing', async () => {
+  const { page, submissions } = await workspace();
+  try {
+    await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
+    await page.getByRole('textbox', { name: '任务名称', exact: true }).fill('环境待补充');
+    await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
+    await page.getByRole('button', { name: /解析 PR/ }).click();
+    await page.getByText(source.head_sha, { exact: true }).waitFor();
+    await page.getByRole('tab', { name: 'Jobs', exact: true }).click();
+    await page.getByRole('textbox', { name: 'job1 主执行 1 · 启动命令', exact: true }).fill('bash run.sh');
+    await page.getByRole('button', { name: /提交任务申请/ }).click();
+    await page.getByRole('alert').filter({ hasText: '请补全或修正标记的配置项' }).waitFor();
+    assert.equal(await page.getByRole('tab', { name: '任务环境', exact: true }).getAttribute('aria-selected'), 'true');
+    assert.equal(submissions.length, 0);
+  } finally { await page.close(); }
+});
+
 test('LAN HTTP request submission uses a UUID fallback and preserves its key on retry', async () => {
   const { page, errors } = await workspace();
   const attempts = [];
@@ -98,20 +132,29 @@ test('failure before the request is sent restores the submit button and shows th
   } finally { await page.close(); }
 });
 
-test('create a task with separate server/client environments on one resource node', async () => {
+test('create a compact task with environment and Jobs tabs, launch commands, and destination artifacts', async () => {
   const { page, submissions, errors } = await workspace();
   try {
-    await page.getByRole('checkbox', { name: '新建任务' }).check();
+    await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
     await page.getByRole('textbox', { name: '任务名称', exact: true }).fill('并排环境验证');
     await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
     await page.getByText(source.head_sha, { exact: true }).waitFor();
+    await page.getByRole('tab', { name: '任务环境', exact: true }).click();
     await page.getByRole('textbox', { name: 'server_env · 镜像', exact: true }).fill('fixture/server:1');
     await page.getByRole('textbox', { name: 'client_env · 镜像', exact: true }).fill('fixture/client:2');
-    await page.getByRole('textbox', { name: 'job1 主执行 1 · PR 路径', exact: true }).fill('ci/check.sh');
+    await page.getByRole('tab', { name: 'Jobs', exact: true }).click();
+    assert.equal(await page.getByRole('spinbutton', { name: 'job1 · 超时（分钟）', exact: true }).inputValue(), '10');
+    assert.equal(await page.getByRole('combobox').count(), 0);
+    assert.equal(await page.locator('.workflow-graph-node').first().evaluate(node => {
+      const bounds = node.getBoundingClientRect();
+      return [...node.querySelectorAll('.job-graph-phase')].every(phase => phase.getBoundingClientRect().bottom <= bounds.bottom);
+    }), true, 'all three job phases must fit inside the graph card with the application stylesheet');
+    await page.getByRole('textbox', { name: 'job1 主执行 1 · 启动命令', exact: true }).fill('bash ci/check.sh');
     await page.getByRole('button', { name: '添加 job1 产物', exact: true }).click();
-    await page.getByRole('textbox', { name: 'job1 产物 1 · 容器绝对路径', exact: true }).fill('/home/results/output.json');
+    await page.getByRole('textbox', { name: 'job1 产物 1 · 路径', exact: true }).fill('/home/results/output.json');
     await page.getByRole('textbox', { name: 'job1 产物 1 · 名称', exact: true }).fill('运行结果');
+    if (process.env.HIVE_BROWSER_COMPACT_SCREENSHOT) await page.screenshot({ path: process.env.HIVE_BROWSER_COMPACT_SCREENSHOT, fullPage: true });
     await page.getByRole('button', { name: /提交任务申请/ }).click();
     await page.getByRole('heading', { name: '并排环境验证', exact: true }).waitFor();
     assert.equal(submissions.length, 1);
@@ -120,71 +163,62 @@ test('create a task with separate server/client environments on one resource nod
       ['server_env', 'server', 'node0', 'fixture/server:1'], ['client_env', 'client', 'node0', 'fixture/client:2'],
     ]);
     assert.equal(submissions[0].source.head_sha, source.head_sha);
-    assert.equal(submissions[0].environments[0].workdir, '/home');
-    assert.equal(submissions[0].jobs[0].steps[0].path, 'ci/check.sh');
-    assert.deepEqual(submissions[0].jobs[0].artifacts, [{ path: '/home/results/output.json', label: '运行结果', kind: 'file' }]);
+    assert.equal(submissions[0].jobs[0].timeout_seconds, 600);
+    assert.equal(submissions[0].jobs[0].steps[0].launch, 'bash ci/check.sh');
+    assert.deepEqual(submissions[0].jobs[0].artifacts, [{ environment: 'server_env', path: '/home/results/output.json', label: '运行结果' }]);
     if (process.env.HIVE_BROWSER_PAYLOAD_PATH) await writeFile(process.env.HIVE_BROWSER_PAYLOAD_PATH, JSON.stringify(submissions[0], null, 2), 'utf8');
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
 
-test('attach Python and YAML files with explicit runners and independent environment setup', async () => {
+test('upload multiple files and edit only a launch command, including optional collision renaming', async () => {
   const { page, submissions } = await workspace();
   try {
-    await page.getByRole('checkbox', { name: '新建任务' }).check();
+    await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
     await page.getByRole('textbox', { name: '任务名称', exact: true }).fill('文件入口验证');
     await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
     await page.getByText(source.head_sha, { exact: true }).waitFor();
     await page.getByRole('textbox', { name: 'server_env · 镜像', exact: true }).fill('fixture/server:1');
     await page.getByRole('textbox', { name: 'client_env · 镜像', exact: true }).fill('fixture/client:2');
-    await page.getByText('server_env · 环境配置', { exact: true }).click();
-    await page.getByRole('textbox', { name: 'server_env · Python 解释器', exact: true }).fill('/opt/server/bin/python');
-    await page.getByRole('button', { name: /添加 server_env 安装文件/ }).click();
-    await page.getByRole('textbox', { name: 'server_env 安装 1 · PR 路径', exact: true }).fill('ci/install.sh');
-    await page.getByRole('combobox', { name: 'job1 主执行 1 · 文件类型', exact: true }).selectOption('python');
-    await page.getByRole('textbox', { name: 'job1 主执行 1 · PR 路径', exact: true }).fill('ci/run.py');
-    await page.getByLabel('job1 主执行 1 · 上传文件', { exact: true }).setInputFiles({ name: 'run.py', mimeType: 'text/plain', buffer: Buffer.from('print("fixture")\n') });
-    await page.getByRole('button', { name: /添加 job1 主执行文件/ }).click();
-    await page.getByRole('combobox', { name: 'job1 主执行 2 · 文件类型', exact: true }).selectOption('yaml');
-    await page.getByRole('textbox', { name: 'job1 主执行 2 · PR 路径', exact: true }).fill('ci/input.yaml');
-    await page.getByRole('button', { name: /提交任务申请/ }).click();
-    assert.equal(submissions.length, 0, 'a YAML file cannot execute without a runner');
-    await page.getByRole('textbox', { name: 'job1 主执行 2 · YAML 执行入口', exact: true }).fill('ci/runner.py');
-    await page.getByLabel('job1 主执行 2 · 上传文件', { exact: true }).setInputFiles({ name: 'input.yaml', mimeType: 'text/yaml', buffer: Buffer.from('mode: fixture\n') });
+    await page.getByRole('button', { name: '+ 添加 server_env 安装', exact: true }).click();
+    await page.getByLabel('server_env 安装 1 · 上传文件', { exact: true }).setInputFiles({ name: 'install.sh', mimeType: 'text/plain', buffer: Buffer.from('echo install') });
+    await page.getByRole('tab', { name: 'Jobs', exact: true }).click();
+    await page.getByLabel('job1 主执行 1 · 上传文件', { exact: true }).setInputFiles([
+      { name: 'runner.py', mimeType: 'text/plain', buffer: Buffer.from('print("fixture")') },
+      { name: 'config.yaml', mimeType: 'text/plain', buffer: Buffer.from('value: 1') },
+    ]);
+    await page.getByRole('textbox', { name: 'job1 主执行 1 · 启动命令', exact: true }).fill('python3 ci/runner.py config.yaml');
+    await page.getByRole('button', { name: '重命名 runner.py', exact: true }).click();
+    await page.getByRole('textbox', { name: '文件名 runner.py', exact: true }).fill('ci/runner.py');
     await page.getByRole('button', { name: /提交任务申请/ }).click();
     await page.getByRole('heading', { name: '文件入口验证', exact: true }).waitFor();
-    assert.equal(submissions[0].environments[0].python, '/opt/server/bin/python');
-    assert.equal(submissions[0].environments[1].python, 'python3');
-    assert.equal(submissions[0].environments[0].install[0].path, 'ci/install.sh');
-    assert.equal(submissions[0].jobs[0].steps[0].uploaded_content, 'print("fixture")\n');
-    assert.equal(submissions[0].jobs[0].steps[1].runner.path, 'ci/runner.py');
-    assert.deepEqual(submissions[0].jobs[0].steps[1].runner.args, ['${input}']);
+    assert.deepEqual(submissions[0].environments[0].install, [{ launch: '', files: [{ name: 'install.sh', content: 'echo install' }] }]);
+    assert.deepEqual(submissions[0].jobs[0].steps, [{ launch: 'python3 ci/runner.py config.yaml', files: [{ name: 'ci/runner.py', content: 'print("fixture")' }, { name: 'config.yaml', content: 'value: 1' }] }]);
   } finally { await page.close(); }
 });
 
 test('connect service readiness to a zero-NPU client and reject a dependency cycle', async () => {
   const { page, submissions } = await workspace();
   try {
-    await page.getByRole('checkbox', { name: '新建任务' }).check();
+    await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
     await page.getByRole('textbox', { name: '任务名称', exact: true }).fill('依赖编排验证');
     await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
     await page.getByText(source.head_sha, { exact: true }).waitFor();
     await page.getByRole('textbox', { name: 'server_env · 镜像', exact: true }).fill('fixture/server:1');
     await page.getByRole('textbox', { name: 'client_env · 镜像', exact: true }).fill('fixture/client:2');
-    await page.getByRole('combobox', { name: 'job1 · 作业类型', exact: true }).selectOption('service');
-    await page.getByRole('textbox', { name: 'job1 主执行 1 · PR 路径', exact: true }).fill('ci/server.sh');
-    await page.getByRole('button', { name: /添加 job1 就绪检查文件/ }).click();
-    await page.getByRole('textbox', { name: 'job1 就绪检查 1 · PR 路径', exact: true }).fill('ci/ready.py');
-    await page.getByRole('combobox', { name: 'job1 就绪检查 1 · 文件类型', exact: true }).selectOption('python');
+    await page.getByRole('tab', { name: 'Jobs', exact: true }).click();
+    await page.getByRole('button', { name: '常驻服务', exact: true }).click();
+    await page.getByRole('textbox', { name: 'job1 主执行 1 · 启动命令', exact: true }).fill('bash ci/server.sh');
+    await page.getByRole('button', { name: '+ 添加 job1 就绪检查', exact: true }).click();
+    await page.getByRole('textbox', { name: 'job1 就绪检查 1 · 启动命令', exact: true }).fill('python3 ci/ready.py');
     await page.getByRole('button', { name: /添加作业/ }).click();
-    await page.getByRole('combobox', { name: 'job2 · 目标环境', exact: true }).selectOption('client_env');
+    await page.getByRole('group', { name: 'job2 · 目标环境', exact: true }).getByRole('button', { name: 'client_env', exact: true }).click();
     await page.getByRole('spinbutton', { name: 'job2 · NPU 数量', exact: true }).fill('0');
-    await page.getByRole('textbox', { name: 'job2 主执行 1 · PR 路径', exact: true }).fill('ci/client.sh');
+    await page.getByRole('textbox', { name: 'job2 主执行 1 · 启动命令', exact: true }).fill('bash ci/client.sh');
     await page.getByRole('button', { name: '从 job1 连线', exact: true }).click();
     await page.getByRole('button', { name: '连线到 job2', exact: true }).click();
-    await page.getByRole('combobox', { name: 'job2 等待 job1', exact: true }).selectOption('ready');
     await page.getByRole('button', { name: '从 job2 连线', exact: true }).click();
     await page.getByRole('button', { name: '连线到 job1', exact: true }).click();
     await page.getByRole('alert').filter({ hasText: '依赖会形成环' }).waitFor();
@@ -194,7 +228,7 @@ test('connect service readiness to a zero-NPU client and reject a dependency cyc
     assert.deepEqual(submissions[0].jobs[1].depends_on, [{ job_id: 'job1', condition: 'ready' }]);
     assert.equal(submissions[0].jobs[1].npu_count, 0);
     assert.deepEqual(submissions[0].jobs[0].depends_on, []);
-    assert.equal(submissions[0].jobs[0].ready[0].path, 'ci/ready.py');
+    assert.equal(submissions[0].jobs[0].ready[0].launch, 'python3 ci/ready.py');
   } finally { await page.close(); }
 });
 
@@ -208,14 +242,15 @@ test('reuse a retained space, inspect per-stage logs, and request task cancellat
     await page.getByRole('button', { name: '关闭', exact: true }).click();
     await page.getByRole('button', { name: '取消任务 已有任务', exact: true }).click();
     await page.getByRole('button', { name: /确认取消任务/ }).click();
-    await page.getByRole('checkbox', { name: '新建任务' }).check();
+    await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
     await page.getByRole('textbox', { name: '任务名称', exact: true }).fill('复用环境任务');
     await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
     await page.getByText(source.head_sha, { exact: true }).first().waitFor();
     await page.getByRole('checkbox', { name: '使用保留环境', exact: true }).check();
-    await page.getByRole('combobox', { name: '运行空间', exact: true }).selectOption('s1');
-    await page.getByRole('textbox', { name: 'job1 主执行 1 · PR 路径', exact: true }).fill('ci/check.sh');
+    await page.getByRole('group', { name: '运行空间', exact: true }).getByRole('button', { name: '#s1 · READY', exact: true }).click();
+    await page.getByRole('tab', { name: 'Jobs', exact: true }).click();
+    await page.getByRole('textbox', { name: 'job1 主执行 1 · 启动命令', exact: true }).fill('bash ci/check.sh');
     await page.getByRole('button', { name: /提交任务申请/ }).click();
     await page.getByRole('heading', { name: '复用环境任务', exact: true }).waitFor();
     assert.equal(submissions[0].space_id, 's1');
@@ -229,29 +264,31 @@ test('reuse a retained space, inspect per-stage logs, and request task cancellat
 
 test('filter externally supplied presets and keep unverified entries disabled', async () => {
   const presets = [
-    { id: 'first', name: '已验收样例', enabled: true, tags: { cycle: 'nightly', kind: 'performance', model: 'fixture-model' }, workflow: { name: '预置任务', jobs: [{ id: 'job1', name: '外部样例', environment: 'server_env', kind: 'batch', npu_count: 1, ports: [], depends_on: [], pre: [], steps: [{ type: 'python', path: 'ci/sample.py', args: [] }], post: [], post_policy: 'success', ready: [], timeout_seconds: 60 }] } },
+    { id: 'first', name: '已验收样例', enabled: true, tags: { cycle: 'nightly', kind: 'performance', model: 'fixture-model' }, workflow: { name: '预置任务', resource: { generation: 'A3', machine_count: 1, min_memory_gib: 64 }, jobs: [{ id: 'job1', name: '外部样例', environment: 'server_env', kind: 'batch', npu_count: 1, ports: [], depends_on: [], pre: [], steps: [{ type: 'python', path: 'ci/sample.py', args: [] }], post: [], post_policy: 'success', ready: [], timeout_seconds: 60 }] } },
     { id: 'other', name: '等待验收条目', enabled: false, reason: '尚未验收，未开放执行', tags: { cycle: 'weekly', kind: 'accuracy' } },
   ];
   const { page, submissions } = await workspace({ presets });
   try {
-    await page.getByRole('checkbox', { name: '新建任务' }).check();
+    await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
     await page.getByText('选择外部预置', { exact: true }).click();
-    await page.getByRole('combobox', { name: '预置周期', exact: true }).selectOption('weekly');
+    await page.getByRole('button', { name: 'weekly', exact: true }).click();
     assert.equal(await page.getByRole('button', { name: '使用预置 等待验收条目', exact: true }).isDisabled(), true);
     assert.equal(await page.getByRole('button', { name: '使用预置 已验收样例', exact: true }).count(), 0);
-    await page.getByRole('combobox', { name: '预置周期', exact: true }).selectOption('nightly');
+    await page.getByRole('button', { name: 'nightly', exact: true }).click();
     await page.getByRole('textbox', { name: '搜索预置标签', exact: true }).fill('fixture-model');
     await page.getByRole('button', { name: '使用预置 已验收样例', exact: true }).click();
-    assert.equal(await page.getByRole('textbox', { name: 'job1 主执行 1 · PR 路径', exact: true }).inputValue(), 'ci/sample.py');
-    assert.equal(await page.getByRole('combobox', { name: 'job1 主执行 1 · 文件类型', exact: true }).inputValue(), 'python');
+    await page.getByRole('tab', { name: 'Jobs', exact: true }).click();
+    assert.equal(await page.getByRole('textbox', { name: 'job1 主执行 1 · 启动命令', exact: true }).inputValue(), 'python3 ci/sample.py');
     await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
     await page.getByText(source.head_sha, { exact: true }).waitFor();
+    await page.getByRole('tab', { name: '任务环境', exact: true }).click();
     await page.getByRole('textbox', { name: 'server_env · 镜像', exact: true }).fill('fixture/server:1');
     await page.getByRole('textbox', { name: 'client_env · 镜像', exact: true }).fill('fixture/client:2');
     await page.getByRole('button', { name: /提交任务申请/ }).click();
     await page.getByRole('heading', { name: '预置任务', exact: true }).waitFor();
     assert.equal(submissions[0].preset_id, 'first');
+    assert.equal(submissions[0].resource.min_memory_gib, 0, 'the removed memory filter cannot survive invisibly from an older preset');
     await page.setViewportSize({ width: 390, height: 844 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'mobile task form must stay within the viewport');
     if (process.env.HIVE_BROWSER_SCREENSHOTS) await page.screenshot({ path: process.env.HIVE_BROWSER_SCREENSHOTS + '/workflow-mobile.png', fullPage: true });
@@ -267,7 +304,7 @@ test('ordinary requests remain debug-only and changing PR while resolving cannot
     await page.getByRole('status').filter({ hasText: '已登记' }).waitFor();
     assert.equal(debugRequests[0].spec.purpose, 'debug');
     assert.equal(submissions.length, 0);
-    await page.getByRole('checkbox', { name: '新建任务' }).check();
+    await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
     await page.route('**/api/sources/resolve', async route => { await gate; await route.fulfill({ json: source }); });
     await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
@@ -281,7 +318,7 @@ test('ordinary requests remain debug-only and changing PR while resolving cannot
 test('users without request permission can inspect task configuration but cannot submit resource-consuming work', async () => {
   const { page, submissions } = await workspace({ canRequest: false });
   try {
-    await page.getByRole('checkbox', { name: '新建任务' }).check();
+    await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
     assert.equal(await page.getByRole('button', { name: /提交任务申请/ }).isDisabled(), true);
     await page.getByText('尚未获得服务器申请权限，请联系管理员开启任务提交。', { exact: true }).waitFor();
     assert.equal(submissions.length, 0);
@@ -307,12 +344,35 @@ test('load a minimal external workflow using the same generic defaults as the AP
   const presets = [{ id: 'minimal', name: '简洁外部预置', enabled: true, tags: { cycle: 'nightly' }, workflow: { jobs: [{ id: 'loaded', environment: 'server_env', steps: [{ type: 'python', path: 'ci/minimal.py' }] }] } }];
   const { page, errors } = await workspace({ presets });
   try {
-    await page.getByRole('checkbox', { name: '新建任务' }).check();
+    await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
     await page.getByText('选择外部预置', { exact: true }).click();
     await page.getByRole('button', { name: '使用预置 简洁外部预置', exact: true }).click();
-    await page.getByRole('textbox', { name: 'loaded 主执行 1 · PR 路径', exact: true }).waitFor();
-    assert.equal(await page.getByRole('textbox', { name: 'loaded 主执行 1 · 参数（JSON 数组）', exact: true }).inputValue(), '[]');
+    await page.getByRole('tab', { name: 'Jobs', exact: true }).click();
+    await page.getByRole('textbox', { name: 'loaded 主执行 1 · 启动命令', exact: true }).waitFor();
+    assert.equal(await page.getByRole('textbox', { name: 'loaded 主执行 1 · 启动命令', exact: true }).inputValue(), 'python3 ci/minimal.py');
     assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test('editing a legacy YAML preset preserves uploaded config and both argument lists', async () => {
+  const presets = [{ id: 'legacy', name: '旧配置兼容', enabled: true, tags: {}, workflow: { name: '旧配置兼容任务', jobs: [{ id: 'legacyjob', environment: 'server_env', steps: [{ type: 'yaml', path: 'ci/case.yaml', launch: '', uploaded_content: 'value: 2', args: ['--config', '${input}'], runner: { type: 'python', path: 'ci/runner.py', args: ['--verify'] } }] }] } }];
+  const { page, submissions } = await workspace({ presets });
+  try {
+    await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
+    await page.getByText('选择外部预置', { exact: true }).click();
+    await page.getByRole('button', { name: '使用预置 旧配置兼容', exact: true }).click();
+    await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
+    await page.getByRole('button', { name: /解析 PR/ }).click();
+    await page.getByText(source.head_sha, { exact: true }).waitFor();
+    await page.getByRole('textbox', { name: 'server_env · 镜像', exact: true }).fill('fixture/server:1');
+    await page.getByRole('textbox', { name: 'client_env · 镜像', exact: true }).fill('fixture/client:1');
+    await page.getByRole('tab', { name: 'Jobs', exact: true }).click();
+    const command = page.getByRole('textbox', { name: 'legacyjob 主执行 1 · 启动命令', exact: true });
+    assert.equal(await command.inputValue(), 'python3 ci/runner.py --verify --config ci/case.yaml');
+    await command.fill('python3 ci/runner.py --verify --config ci/case.yaml --report');
+    await page.getByRole('button', { name: /提交任务申请/ }).click();
+    await page.getByRole('heading', { name: '旧配置兼容任务', exact: true }).waitFor();
+    assert.deepEqual(submissions[0].jobs[0].steps[0].files, [{ name: 'ci/case.yaml', content: 'value: 2' }]);
   } finally { await page.close(); }
 });
 
@@ -332,7 +392,7 @@ test('administrators import a pinned PR catalog and enable one approved preset w
     presets[0].enabled = true; return route.fulfill({ json: presets[0] });
   });
   try {
-    await page.getByRole('checkbox', { name: '新建任务' }).check();
+    await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
     await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
     await page.getByText(source.head_sha, { exact: true }).waitFor();

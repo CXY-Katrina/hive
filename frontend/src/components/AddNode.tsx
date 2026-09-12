@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { errorText, post } from '../api';
 import { ErrorNotice, Field, Modal } from './ui';
+import { NodeMappingFields, type NodeMappingEntry } from './NodeMappings';
 
 interface ConnectionCheck {
   status: 'ok' | 'host_key_required';
@@ -11,6 +12,7 @@ interface ConnectionCheck {
 
 export function AddNode({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [form, setForm] = useState({ name: '', host: '', port: 22, ssh_user: 'root', password: '', generation: 'A3', cluster_name: '默认集群' });
+  const [mappings, setMappings] = useState<NodeMappingEntry[]>([]);
   const [result, setResult] = useState<ConnectionCheck>();
   const [fingerprint, setFingerprint] = useState<string>();
   const [confirmed, setConfirmed] = useState(false);
@@ -26,7 +28,8 @@ export function AddNode({ onClose, onCreated }: { onClose: () => void; onCreated
       host_key_fingerprint: fingerprint || (confirmed ? result?.host_key.fingerprint : undefined) };
     try {
       if (result?.status === 'ok') {
-        await post('/nodes', { ...form, ...connection, name: form.name.trim() || form.host.trim() });
+        await post('/nodes', { ...form, ...connection, name: form.name.trim() || form.host.trim(),
+          ...(mappings.length ? { mappings } : {}) });
         onCreated();
       } else {
         const checked = await post<ConnectionCheck>('/nodes/check', connection);
@@ -50,6 +53,11 @@ export function AddNode({ onClose, onCreated }: { onClose: () => void; onCreated
           <Field label="NPU 代际"><select disabled={busy} value={form.generation} onChange={e => update({ generation: e.target.value })}>{['A2', 'A3', 'A5'].map(g => <option key={g}>{g}</option>)}</select></Field>
           <Field label="机型 · 自动检测"><input readOnly value={result?.status === 'ok' ? result.model || '系统未提供机型' : ''} placeholder="检测连接后自动读取" /></Field>
         </div>
+        <section className="node-mapping-onboarding" aria-label="纳管资源映射">
+          <h3>资源映射 · 可选</h3>
+          <p>登记本机已有权重、数据集、镜像与依赖包，任务可使用统一名称引用。也可以纳管后再添加。</p>
+          <NodeMappingFields entries={mappings} onChange={setMappings} disabled={busy} />
+        </section>
         {result?.status === 'host_key_required' && <div className="connection-check">
           <strong>首次连接：核验服务器身份</strong>
           <p className="muted small">请通过服务器可信控制台或管理员核对以下 SSH 主机指纹。确认后才会使用密码登录。</p>

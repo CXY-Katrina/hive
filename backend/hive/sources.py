@@ -106,3 +106,18 @@ class SourceService:
         """Read the immutable revision resolved and retained by the server."""
         validate_file_request(source, path)
         return self._content(source['head_sha'], path)
+
+    def upload_path(self, source, name, tree=None):
+        """Resolve a picked local filename in one complete, immutable PR tree."""
+        validate_file_request(source, name)
+        tree = tree if tree is not None else self._json(f"{API}/git/trees/{source['head_sha']}?recursive=1")
+        if tree.get('truncated') is not False or not isinstance(tree.get('tree'), list):
+            raise DomainError('PR 文件清单不完整，无法确认上传文件来源', 502)
+        matches = [item['path'] for item in tree['tree'] if item.get('type') == 'blob'
+                   and item.get('mode') in {'100644', '100755'} and isinstance(item.get('path'), str)
+                   and (item['path'] == name or item['path'].endswith('/' + name))]
+        if name in matches:
+            return name, tree
+        if len(matches) != 1:
+            raise DomainError('上传文件在 PR 中不存在或重名，请使用 PR 相对路径命名: ' + name, 422)
+        return matches[0], tree

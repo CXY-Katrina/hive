@@ -101,6 +101,9 @@ class Inventory:
             self.db.audit(c, actor, "node.admit", node_id, {"host": host})
             c.execute("UPDATE nodes SET adapter=%s,vendor=%s,device_kind=%s WHERE id=%s",
                       (payload.get("adapter","ascend"),payload.get("vendor","ascend"),payload.get("device_kind","npu"),node_id))
+            if payload.get('mappings') is not None:
+                from .node_mappings import NodeMappings
+                NodeMappings(self.db).replace(node_id, actor, payload['mappings'], version=0, cursor=c)
         return self.get(node_id)
 
     def list_nodes(self):

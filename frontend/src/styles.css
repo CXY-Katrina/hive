@@ -2796,3 +2796,56 @@ tbody tr:last-child td {
 
 .workflow-catalog-admin { margin: 16px 0; padding: 16px; border: 1px solid var(--border); background: #f6f9f4; }
 .workflow-catalog-admin > .field { max-width: 620px; }
+/* Compact workflow authoring: allocation first, then environment / jobs. */
+.choice-buttons { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.choice-buttons button { font: inherit; font-size: 12px; line-height: 1.3; padding: 9px 13px; border: 1px solid var(--border); background: white; color: var(--muted); cursor: pointer; border-radius: 5px; overflow-wrap: anywhere; transition: background .15s, border-color .15s; }
+.choice-buttons button:hover { border-color: var(--green); color: var(--green); }
+.choice-buttons button[aria-pressed="true"] { background: #e7f0e2; border-color: #5b866c; color: #214f3c; box-shadow: inset 0 0 0 1px #5b866c20; }
+.choice-buttons button:focus-visible, .workflow-tabs button:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+.workflow-mode { margin: 20px 0 0; padding: 18px 20px; border: 1px solid #88ac8b; border-radius: 7px; background: linear-gradient(110deg, #e2efdb, #f3f7ed); box-shadow: 0 3px 12px #214f3c08; }
+.workflow-mode strong { display: block; font-size: 17px; color: #214f3c; }
+.workflow-mode small { font-size: 12px; font-weight: 400; }
+.workflow-mode > svg { margin-left: auto; color: var(--green); }
+.workflow-mode input { width: 19px; height: 19px; }
+.workflow-resource-first .request-form-panel { width: 100%; }
+.workflow-resource-first .resource-form .form-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.workflow-tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--border); margin-top: 28px; margin-bottom: 20px; }
+.workflow-tabs button { padding: 12px 4px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
+.workflow-tabs button[aria-selected="true"] { border-bottom-color: var(--green); color: var(--green); }
+.workflow-composer [role="tabpanel"][hidden] { display: none; }
+.workflow-composer .workflow-environments { grid-template-columns: 1fr; gap: 12px; }
+.workflow-environment, .workflow-job { padding: 16px; border-radius: 7px; background: #fff; }
+.workflow-environment-row { display: grid; grid-template-columns: minmax(140px, .8fr) minmax(120px, .7fr) minmax(140px, .8fr) minmax(180px, 1.4fr); align-items: end; gap: 12px; }
+.workflow-job-row { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(220px, 1.6fr) 90px 100px auto; align-items: end; gap: 12px; }
+.workflow-job-row > button { margin-bottom: 13px; }
+.workflow-job-row .field, .workflow-environment-row .field, .workflow-artifact-row .field { min-width: 0; margin: 0; }
+.workflow-job-row .choice-buttons button { padding: 10px; }
+.workflow-job .job-kind { margin: 12px 0; }
+.workflow-job .job-kind button { font-size: 11px; padding: 5px 10px; }
+.workflow-files { margin-top: 12px; }
+.workflow-files > .workflow-row-heading { margin-bottom: 6px; padding-top: 7px; border-top: 1px solid #edf1e9; }
+.workflow-files .workflow-row-heading h5 { font-size: 12px; color: var(--muted); }
+.workflow-files .workflow-row-heading .text-button { font-size: 12px; }
+.workflow-step.compact-step { padding: 12px; margin: 8px 0; border-radius: 5px; background: #f8faf5; }
+.compact-step > .workflow-row-heading { margin-bottom: 6px; font-size: 11px; color: var(--muted); }
+.compact-step .field { margin-bottom: 0; }
+.launch-editor { color: #d5e4cb; min-height: 64px; font-size: 13px; line-height: 1.5; resize: vertical; }
+.workflow-upload { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.upload-button { display: inline-flex; position: relative; align-items: center; gap: 6px; border: 1px dashed #8bac8c; border-radius: 4px; padding: 7px 12px; color: var(--green); background: white; font-size: 12px; cursor: pointer; overflow: hidden; }
+.upload-button input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+.upload-button:focus-within { outline: 2px solid var(--green); outline-offset: 2px; }
+.uploaded-files { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.uploaded-file { display: flex; align-items: center; gap: 8px; padding: 3px 8px; background: white; border: 1px solid var(--border); border-radius: 4px; min-width: 0; }
+.uploaded-file code { font-size: 12px; overflow-wrap: anywhere; }
+.uploaded-file .text-button { font-size: 11px; }
+.uploaded-file input { padding: 4px; max-width: 220px; }
+.workflow-artifact-row { display: grid; grid-template-columns: minmax(180px, 1.2fr) minmax(100px, .7fr) minmax(180px, 1.4fr) auto; align-items: end; gap: 10px; margin: 10px 0; }
+.workflow-artifact-row > button { margin-bottom: 12px; }
+@media(max-width:1100px) { .workflow-environment-row { grid-template-columns: repeat(2,minmax(0,1fr)); } .workflow-job-row { grid-template-columns: minmax(120px,1fr) minmax(140px,1fr) 80px 90px auto; } }
+@media(max-width:800px) { .workflow-resource-first .resource-form .form-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .workflow-job-row { grid-template-columns: repeat(2,minmax(0,1fr)); } .workflow-job-row > button { justify-self: start; margin: 0; } .workflow-artifact-row { grid-template-columns: minmax(0,1fr) minmax(0,1fr); } }
+@media(max-width:520px) { .workflow-environment-row, .workflow-resource-first .resource-form .form-grid, .workflow-artifact-row { grid-template-columns: 1fr; } .workflow-mode { padding: 14px; } .workflow-environment, .workflow-job { padding: 12px; } .workflow-artifact-row > button { margin: 0; justify-self: start; } }
+.request-form-panel .panel-title { flex-wrap: wrap; }
+.request-form-panel .button.workflow-mode { margin: 0 0 0 auto; padding: 11px 18px; border: 1px solid #24563e; border-radius: 6px; background: #285c42; color: white; box-shadow: 0 4px 12px #24563e24; font-weight: 600; }
+.request-form-panel .button.workflow-mode:hover { background: #1e4833; }
+.request-form-panel .button.workflow-mode[aria-pressed="true"] { background: #e8f0e2; color: #214f3c; box-shadow: none; }
+@media(max-width:520px) { .request-form-panel .button.workflow-mode { margin-left: 0; width: 100%; } }

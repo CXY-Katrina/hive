@@ -1,6 +1,7 @@
 import re
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
+from .node_mapping_schemas import MappingEntry, MappingsUpdate
 
 
 class Input(BaseModel):
@@ -45,6 +46,12 @@ class NodeCreate(NodeConnection):
     device_kind: str = Field(default="npu",pattern=r"^[a-z0-9_.-]{1,32}$")
     model: str = Field(default='', max_length=128)
     cluster_name: str = Field(default="default", min_length=1, max_length=128)
+    mappings: list[MappingEntry] | None = Field(default=None, max_length=128)
+
+    @field_validator('mappings')
+    @classmethod
+    def valid_resource_mappings(cls, entries):
+        return MappingsUpdate(version=0, entries=entries).entries if entries is not None else None
 
 
 class ComputeSpec(Input):

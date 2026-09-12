@@ -9,7 +9,7 @@ from pathlib import PurePosixPath
 
 from .container_runtime import ContainerRuntime
 from .workflow_logs import LogArchive
-from .workflow_artifacts import WorkflowArtifacts
+from .workflow_artifacts import WorkflowArtifacts, artifact_key
 from .domain import DomainError, SYSTEM, now, encode, decode
 
 FINAL = {'SUCCEEDED', 'FAILED', 'CANCELLED', 'SKIPPED'}
@@ -28,6 +28,7 @@ def materialize_files(root, files):
         target = root + '/' + path
         result += guard_path(target)
         if file.get('uploaded'):
+            result += 'mkdir -p -- ' + shlex.quote(str(PurePosixPath(target).parent)) + '\n'
             result += 'printf %s ' + shlex.quote(base64.b64encode(file['content'].encode()).decode()) + ' | base64 --decode > ' + shlex.quote(target) + '\n'
         result += 'test "$(sha256sum -- ' + shlex.quote(target) + " | cut -d ' ' -f 1)\" = " + shlex.quote(file['sha256']) + '\n'
     return result
@@ -44,6 +45,31 @@ def render_steps(steps, env, context):
     lines = ['set -euo pipefail']
     for step in steps:
         root = context['source_dir']
+        if step.get('launch') or step.get('files'):
+            command = step.get('launch', '').strip()
+            exports = []
+            launch_context = dict(context)
+            if step.get('files'):
+                launch_context['input'] = root + '/' + step['files'][0]['name']
+            if command:
+                def launch_parameter(match):
+                    key = match[1]
+                    if key not in launch_context:
+                        if '.' in key:
+                            raise DomainError('未定义的任务参数: ' + key, 422)
+                        return match[0]  # Ordinary shell variables belong to the script.
+                    name = 'HIVE_LAUNCH_PARAM_' + str(len(exports))
+                    exports.append('export ' + name + '=' + shlex.quote(str(launch_context[key])))
+                    return '${' + name + '}'
+                command = re.sub(r'\$\{([A-Za-z_][A-Za-z0-9_.-]*)\}', launch_parameter, command)
+            else:
+                commands = []
+                for file in step['files']:
+                    interpreter = env['python'] if file['name'].lower().endswith('.py') else env['shell']
+                    commands.append(shlex.join([interpreter, root + '/' + file['name']]))
+                command = '\n'.join(commands)
+            lines.append('(\ncd -- ' + shlex.quote(root) + '\n' + '\n'.join(exports) + '\n' + command + '\n)')
+            continue
         entry = step
         values = dict(context)
         values['input'] = root + '/' + (step['inputs'][0]['path'] if step.get('inputs') and step['type'] != 'yaml' else step['path'])
@@ -61,6 +87,16 @@ def render_steps(steps, env, context):
             context.pop('input', None)
         else:
             context['input'] = old_input
+    return '\n'.join(lines) + '\n'
+
+
+
+def resource_helpers(mappings):
+    lines = ['hive_resource() {', 'case "$1:$2" in']
+    for kind, items in mappings.items():
+        for name, target in items.items():
+            lines.append(shlex.quote(kind + ':' + name) + ') printf "%s\\n" ' + shlex.quote(target) + ' ;;')
+    lines += ['*) printf "%s\\n" "资源映射不存在: $1/$2" >&2; return 2 ;;', 'esac', '}', 'export -f hive_resource']
     return '\n'.join(lines) + '\n'
 
 
@@ -104,7 +140,7 @@ class WorkflowEngine:
             return item.get('exit_code', 1)
         if item['status'] == 'PREPARING':
             workdir = '/tmp' if phase == 'checkout' else env['spec']['workdir']
-            item['attempt'] = self.runtime.prepare(node, identity, item['id'], '# HIVE_PHASE ' + phase + '\n' + script,
+            item['attempt'] = self.runtime.prepare(node, identity, item['id'], '# HIVE_PHASE ' + phase + '\n' + resource_helpers(env['runtime'].get('resource_mappings', {})) + script,
                                                    variables, timeout, workdir)
             item['status'] = 'PREPARED'
             save(row)
@@ -148,31 +184,38 @@ class WorkflowEngine:
         state = env['runtime']
         node = self.s.inventory.get(state['node_id'])
         result = {'space_id': space['id'], 'node_alias': env['spec']['node_alias'], 'host': node['host'],
-                'container_name': state['container_name'], 'image': state.get('image_id', env['spec']['image']),
+                'container_name': state['container_name'], 'image': state.get('image_id', state.get('resolved_image', env['spec']['image'])),
                 'source_dir': source_dir, 'vllm_sha': space['spec']['source']['vllm_sha'],
                 'ascend_sha': space['spec']['source']['head_sha']}
         for alias, binding in space['runtime'].get('bindings', {}).items():
             result[alias + '.ip'] = binding['host']
             result[alias + '.host'] = binding['host']
+        result['resource_mappings'] = state.get('resource_mappings', {})
         return result
 
     def variables(self, env, context, cards=()):
         values = {**env['spec']['environment'], 'HIVE_SOURCE_DIR': context['source_dir'],
                   'HIVE_CONTEXT_JSON': encode(context), 'HIVE_PACKAGES_JSON': encode(env['spec']['packages']),
-                  'ASCEND_RT_VISIBLE_DEVICES': ','.join(cards)}
+                  'ASCEND_RT_VISIBLE_DEVICES': ','.join(cards),
+                  'HIVE_RESOURCE_MAP_JSON': encode(env['runtime'].get('resource_mappings', {})),
+                  'HIVE_HOST_IP': context['host'], 'HIVE_CONTAINER_NAME': context['container_name']}
+        for key, value in context.items():
+            if re.fullmatch(r'node[0-9]+\.ip', key):
+                values['HIVE_' + key.replace('.', '_').upper()] = value
         return values
 
     def prepare_environment(self, space, env):
         state, config = env['runtime'], env['spec']
         node = self.s.inventory.connection(state['node_id'])
+        image = state.get('resolved_image', config['image'])
         proof = '/var/tmp/hive/bootstrap/' + space['id'] + '/' + env['alias'] + '/created-container-id'
         context = self.context(space, env, '/var/tmp/hive/sources/' + space['id'] + '/' + env['alias'])
         if not state.get('bootstrap_intent'):
             bootstrap = config['bootstrap']
             if bootstrap['external']:
-                inspect = '# HIVE_BOOTSTRAP_INSPECT\nset -eu\ndocker image inspect --format ' + shlex.quote('{{.Id}}') + ' -- ' + shlex.quote(config['image']) + '\nsha256sum -- ' + shlex.quote(bootstrap['path']) + " | cut -d ' ' -f 1\n"
+                inspect = '# HIVE_BOOTSTRAP_INSPECT\nset -eu\ndocker image inspect --format ' + shlex.quote('{{.Id}}') + ' -- ' + shlex.quote(image) + '\nsha256sum -- ' + shlex.quote(bootstrap['path']) + " | cut -d ' ' -f 1\n"
             else:
-                inspect = '# HIVE_BOOTSTRAP_INSPECT\nset -eu\ndocker image inspect --format ' + shlex.quote('{{.Id}}') + ' -- ' + shlex.quote(config['image']) + '\nprintf "%s\\n" ' + shlex.quote(space['spec']['files'][bootstrap['path']]['sha256'])
+                inspect = '# HIVE_BOOTSTRAP_INSPECT\nset -eu\ndocker image inspect --format ' + shlex.quote('{{.Id}}') + ' -- ' + shlex.quote(image) + '\nprintf "%s\\n" ' + shlex.quote(hashlib.sha256(encode(bootstrap).encode()).hexdigest() if bootstrap.get('launch') or bootstrap.get('files') else space['spec']['files'][bootstrap['path']]['sha256'])
             result = self.s.transport.run(node, inspect)
             fields = result.stdout.split()
             if result.code or len(fields) != 2 or not re.fullmatch('sha256:[0-9a-f]{64}', fields[0]) or not re.fullmatch('[0-9a-f]{64}', fields[1]):
@@ -193,9 +236,9 @@ class WorkflowEngine:
                 for path, file in space['spec']['files'].items():
                     destination = directory + '/' + path
                     parent = destination.rsplit('/', 1)[0]
-                    script += 'mkdir -p -- ' + shlex.quote(parent) + '\nprintf %s ' + shlex.quote(base64.b64encode(file['content'].encode()).decode()) + ' | base64 --decode > ' + shlex.quote(destination) + '\n'
+                    script += guard_path(destination) + 'mkdir -p -- ' + shlex.quote(parent) + '\nprintf %s ' + shlex.quote(base64.b64encode(file['content'].encode()).decode()) + ' | base64 --decode > ' + shlex.quote(destination) + '\n'
                 context = {**context, 'source_dir': directory}
-            command = render_steps([bootstrap], {**config, 'shell': '/bin/bash', 'python': 'python3'}, context)
+            command = ''.join('export ' + key + '=' + shlex.quote(value) + '\n' for key, value in self.variables(env, context).items()) + resource_helpers(state.get('resource_mappings', {})) + render_steps([bootstrap], {**config, 'shell': '/bin/bash', 'python': 'python3'}, context)
             script += 'timeout --signal=TERM --kill-after=5 45 bash -c ' + shlex.quote(command) + '\n'
             script += 'docker inspect --type container --format ' + shlex.quote('{{.Id}}') + ' -- ' + shlex.quote(state['container_name']) + ' > ' + shlex.quote(proof + '.tmp') + '\nmv -- ' + shlex.quote(proof + '.tmp') + ' ' + shlex.quote(proof) + '\n'
             result = self.s.transport.run(node, script, timeout=60)
@@ -337,7 +380,12 @@ class WorkflowEngine:
         if config.get('artifacts') and not state.get('artifacts_collected'):
             archive = WorkflowArtifacts(self.runtime, self.s.settings.data_dir)
             try:
-                collected = archive.collect(self.s.inventory.connection(env['runtime']['node_id']), env['runtime']['identity'], task['id'], job['id'], config['artifacts'])
+                targets = {}
+                for target in self.db.all('SELECT alias,runtime FROM workflow_environments WHERE space_id=%s', (space['id'],)):
+                    binding = decode(target['runtime'])
+                    if binding.get('identity'):
+                        targets[target['alias']] = (self.s.inventory.connection(binding['node_id']), binding['identity'])
+                collected = archive.collect(self.s.inventory.connection(env['runtime']['node_id']), env['runtime']['identity'], task['id'], job['id'], config['artifacts'], targets=targets)
                 state['artifacts'] = collected['artifacts']
                 documents = collected['metrics']
                 metrics = [metric for document in documents for metric in document['metrics']]
@@ -354,7 +402,7 @@ class WorkflowEngine:
                 state['artifacts'] = []
                 for artifact in config['artifacts']:
                     try:
-                        saved = archive.read(task['id'], job['id'], hashlib.sha256(artifact['path'].encode()).hexdigest())
+                        saved = archive.read(task['id'], job['id'], artifact_key(artifact))
                         state['artifacts'].append(saved['metadata'])
                     except DomainError:
                         pass
@@ -494,6 +542,15 @@ class WorkflowEngine:
         if not space['runtime'].get('bindings') and not closing:
             space['runtime']['bindings'] = {'node' + str(i): {'node_id': node_id, 'host': self.s.inventory.get(node_id)['host']} for i, node_id in enumerate(node_ids)}
             self.space_status(space, space['status'])
+        if not closing:
+            for binding in space['runtime'].get('bindings', {}).values():
+                if 'resource_mappings' not in binding:
+                    snapshot = self.s.node_mappings.get(binding['node_id'])
+                    mapping = {kind: {} for kind in ('model', 'dataset', 'image', 'package')}
+                    for item in snapshot['entries']:
+                        mapping[item['kind']][item['name']] = item['target']
+                    binding.update(resource_mappings=mapping, mappings_version=snapshot['version'])
+                    self.space_status(space, space['status'])
         for env in envs:
             if not env['runtime']:
                 if closing:
@@ -504,6 +561,12 @@ class WorkflowEngine:
                 env['runtime'] = {'node_id': node_id, 'logical_ids': [d['logical_id'] for d in selected],
                                   'boot_id': selected[0]['boot_id'], 'epoch': request['version'],
                                   'container_name': 'hive-' + space_id + '-' + env['alias']}
+                self.save_env(env)
+            if not closing and 'resource_mappings' not in env['runtime']:
+                binding = space['runtime']['bindings'][env['spec']['node_alias']]
+                mappings = binding['resource_mappings']
+                env['runtime'].update(resource_mappings=mappings, mappings_version=binding['mappings_version'],
+                                      resolved_image=mappings['image'].get(env['spec']['image'], env['spec']['image']))
                 self.save_env(env)
             if not closing:
                 selected = [d for d in devices if d['node_id'] == env['runtime']['node_id']]

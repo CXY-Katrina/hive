@@ -18,9 +18,24 @@ class Runner(Input):
     args: list[str] = Field(default_factory=list, max_length=128)
 
 
+class UploadedFile(Input):
+    name: str = Field(min_length=1, max_length=512)
+    content: str = Field(max_length=262144)
+
+    @model_validator(mode='after')
+    def valid_file(self):
+        if (not re.fullmatch(r'[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*', self.name)
+                or any(part in {'.', '..', '.git'} for part in self.name.split('/'))
+                or not self.name.lower().endswith(('.sh', '.py', '.yaml', '.yml')) or '\x00' in self.content):
+            raise ValueError('上传文件须为 Shell/Python/YAML，使用有效相对文件名')
+        return self
+
+
 class Step(Input):
+    launch: str = Field(default='', max_length=65536)
+    files: list[UploadedFile] = Field(default_factory=list, max_length=32)
     type: Literal['shell', 'python', 'yaml'] = 'shell'
-    path: str = Field(min_length=1, max_length=512)
+    path: str = Field(default='', max_length=512)
     args: list[str] = Field(default_factory=list, max_length=128)
     inputs: list[FileInput] = Field(default_factory=list, max_length=32)
     uploaded_content: str | None = Field(default=None, max_length=262144)
@@ -29,6 +44,20 @@ class Step(Input):
 
     @model_validator(mode='after')
     def valid_entry(self):
+        if self.launch or self.files:
+            if not self.launch.strip() and not self.files:
+                raise ValueError('请上传文件或填写启动命令')
+            if '${input}' in self.launch and not self.files:
+                raise ValueError('${input} 需要至少一个上传文件')
+            if self.path or self.runner or self.inputs or self.external or self.uploaded_content is not None or self.args:
+                raise ValueError('上传/启动命令与旧文件入口不可混用')
+            if '\x00' in self.launch or len({f.name for f in self.files}) != len(self.files):
+                raise ValueError('启动命令无效或上传文件重复')
+            if not self.launch.strip() and any(f.name.lower().endswith(('.yaml', '.yml')) for f in self.files):
+                raise ValueError('YAML 需要填写启动命令来指定执行器')
+            return self
+        if not self.path:
+            raise ValueError('请上传文件或填写启动命令')
         paths = [self.path] + [i.path for i in self.inputs] + ([self.runner.path] if self.runner else [])
         for path in paths:
             if '\\' in path or '\x00' in path or '..' in PurePosixPath(path).parts or any(ord(c) < 32 for c in path):
@@ -68,7 +97,7 @@ class Environment(Input):
 
     @model_validator(mode='after')
     def valid_environment(self):
-        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/:@-]{0,254}', self.image):
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/:@+-]{0,254}', self.image):
             raise ValueError('镜像引用无效')
         for executable in (self.shell, self.python):
             if not re.fullmatch(r'[A-Za-z0-9_/.+-]+', executable) or '..' in PurePosixPath(executable).parts:
@@ -91,9 +120,10 @@ class Dependency(Input):
 
 
 class Artifact(Input):
+    environment: str = Field(default='', max_length=32)
     path: str = Field(min_length=1, max_length=1024)
     label: str = Field(default='', max_length=128)
-    kind: Literal['file', 'metrics'] = 'file'
+    kind: Literal['file', 'metrics', 'auto'] = 'auto'
 
     @model_validator(mode='after')
     def valid_path(self):
@@ -117,7 +147,7 @@ class Job(Input):
     post: list[Step] = Field(default_factory=list, max_length=32)
     ready: list[Step] = Field(default_factory=list, max_length=32)
     post_policy: Literal['success', 'always'] = 'success'
-    timeout_seconds: int = Field(default=3600, ge=1, le=604800)
+    timeout_seconds: int = Field(default=600, ge=1, le=604800)
     artifacts: list[Artifact] = Field(default_factory=list, max_length=16)
 
 
@@ -149,6 +179,8 @@ class WorkflowCreate(Input):
         for job in self.jobs:
             if self.environments and job.environment not in envs:
                 raise ValueError('job 引用了不存在的环境')
+            if self.environments and any(a.environment and a.environment not in envs for a in job.artifacts):
+                raise ValueError('产物引用了不存在的服务器环境')
             if job.kind == 'service' and not job.ready:
                 raise ValueError('服务 job 需要就绪检查入口')
             if len(set(job.ports)) != len(job.ports) or any(not 1024 <= p <= 65535 for p in job.ports):
@@ -184,6 +216,10 @@ class WorkflowCreate(Input):
             allowed.update({node + '.ip', node + '.host'})
         def check(entries, tokens):
             for entry in entries:
+                for token in re.findall(r'\$\{([A-Za-z_][A-Za-z0-9_.-]*)\}', entry.launch):
+                    if ('.' in token or token in allowed | {'task_id','job_id','port','endpoint'}) and token not in tokens:
+                        if not (self.space_id and not self.environments and re.fullmatch(r'node[0-9]+\.(ip|host)', token)):
+                            raise ValueError('当前阶段没有此参数来源: ' + token)
                 for arg in entry.args + (entry.runner.args if entry.runner else []):
                     for token in re.findall(r'\$\{([A-Za-z_][A-Za-z0-9_.-]*)\}', arg):
                         if token not in tokens and not (self.space_id and not self.environments and re.fullmatch(r'node[0-9]+\.(ip|host)', token)):

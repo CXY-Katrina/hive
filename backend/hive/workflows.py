@@ -95,7 +95,19 @@ class Workflows:
             spec['files'][path] = file
             if sum(f['size'] for f in spec['files'].values()) > 2 * 1024 * 1024:
                 raise DomainError('任务引用文件总量超过 2 MiB', 422)
+        upload_tree = None
         def step_files(step):
+            nonlocal upload_tree
+            if step.get('launch') or step.get('files'):
+                for item in step.get('files', []):
+                    source_path, upload_tree = self.sources.upload_path(resolved, item['name'], upload_tree)
+                    capture(source_path, item['content'], item['name'].lower().endswith(('.yaml', '.yml')))
+                    file = {**spec['files'][source_path], 'source_path': source_path, 'uploaded': True}
+                    existing_file = spec['files'].get(item['name'])
+                    if existing_file and existing_file['sha256'] != file['sha256']:
+                        raise DomainError('上传文件名与其他任务文件冲突', 422)
+                    spec['files'][item['name']] = file
+                return
             if not step.get('external'):
                 capture(step['path'], step.get('uploaded_content'), step['type'] == 'yaml')
             if step.get('runner'):
@@ -108,6 +120,8 @@ class Workflows:
         for job in spec['jobs']:
             for step in job['pre'] + job['steps'] + job['post'] + job['ready']:
                 step_files(step)
+        if sum(f['size'] for f in spec['files'].values()) > 2 * 1024 * 1024:
+            raise DomainError('任务引用文件总量超过 2 MiB', 422)
         with self.db.transaction() as c:
             # Serialize submissions by owner, including reuse and idempotent retries.
             c.execute('SELECT id FROM users WHERE id=%s FOR UPDATE', (actor.id,))
@@ -177,7 +191,10 @@ class Workflows:
                                            'container_name': runtime.get('container_name'), 'node_id': runtime.get('node_id'),
                                            'host': node.get('host'), 'logical_ids': runtime.get('logical_ids', []),
                                            'boot_id': runtime.get('boot_id'), 'logs': runtime.get('logs', []),
-                                           'requested_packages': spec['packages']})
+                                           'requested_packages': spec['packages'],
+                                           'resource_mappings': runtime.get('resource_mappings', {}),
+                                           'mappings_version': runtime.get('mappings_version'),
+                                           'resolved_image': runtime.get('resolved_image')})
         return rows
 
     def cancel(self, task_id, actor):

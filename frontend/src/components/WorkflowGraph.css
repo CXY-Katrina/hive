@@ -1,0 +1,56 @@
+.workflow-graph.hive-job-graph { --graph-green: #286b51; margin: 20px 0; padding: 20px; border: 1px solid #d2e1d2; border-radius: 14px; background: #f8faf6; font-family: Consolas, "Microsoft YaHei", monospace; box-shadow: inset 0 1px 0 #fff; }
+.hive-job-graph .job-graph-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.hive-job-graph .job-graph-eyebrow { color: #698674; font-size: 10px; letter-spacing: .16em; }
+.hive-job-graph h4 { display: flex; align-items: center; gap: 12px; margin: 5px 0 0; font-size: 16px; color: #244937; }
+.hive-job-graph h4 > span { font-size: 10px; font-weight: normal; color: #52745e; border: 1px solid #d5e3d4; background: #edf4e8; padding: 3px 6px; border-radius: 4px; }
+.hive-job-graph .job-graph-legend { display: inline-flex; align-items: center; gap: 7px; color: #69816b; font-size: 11px; }
+.hive-job-graph .job-graph-legend i { width: 7px; height: 7px; background: #83a885; border-radius: 50%; }
+.hive-job-graph .job-graph-hint { color: #68806e; font-size: 12px; margin: 12px 0 16px; line-height: 1.8; }
+.hive-job-graph .workflow-graph-scroll { overflow: auto; max-height: 760px; border: 1px solid #e0e8dc; border-radius: 10px; background: radial-gradient(circle, #cbdacb 1px, transparent 1px) 0 0 / 20px 20px, #f2f6ee; }
+.hive-job-graph .workflow-graph-scroll:focus-visible { outline: 2px solid #458665; outline-offset: 2px; }
+.hive-job-graph .workflow-graph-stage { position: relative; margin: 0 auto; }
+.hive-job-graph .workflow-graph-stage > svg { position: absolute; inset: 0; color: #4e8b64; pointer-events: none; overflow: visible; }
+.hive-job-graph .job-graph-column { position: absolute; color: #729178; font-size: 10px; letter-spacing: .12em; }
+.hive-job-graph .job-graph-edge-line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
+.hive-job-graph .job-graph-edge-underlay { fill: none; stroke: #f2f6ee; stroke-width: 7; stroke-linejoin: round; }
+.hive-job-graph .job-graph-edge.focused { color: #0b6c40; }
+.hive-job-graph .job-graph-edge.focused .job-graph-edge-line { stroke-width: 3; }
+.hive-job-graph .workflow-graph-node { position: absolute; padding: 0; min-height: 0; border: 1px solid #bed1bd; border-radius: 12px; background: #fff; box-shadow: 0 5px 12px #254d3810, 0 1px 2px #254d3808; }
+.hive-job-graph .workflow-graph-node.connecting, .hive-job-graph .workflow-graph-node.selected { outline: 2px solid #4c8b5d; outline-offset: 3px; background: #fff; }
+.hive-job-graph .job-graph-select { display: block; width: 100%; height: 100%; text-align: left; border: 0; padding: 13px 14px 10px; border-radius: 12px; background: transparent; color: #294d39; cursor: pointer; font: inherit; }
+.hive-job-graph .job-graph-select:disabled { opacity: 1; cursor: default; }
+.hive-job-graph .job-graph-select:not(:disabled):hover { background: #f9fcf7; }
+.hive-job-graph .job-graph-select:focus-visible { outline: 2px solid #4c8b5d; outline-offset: 3px; }
+.hive-job-graph .job-graph-node-heading { display: flex; align-items: center; gap: 9px; height: 36px; }
+.hive-job-graph .job-graph-node-heading > div { flex: 1; min-width: 0; }
+.hive-job-graph .job-graph-node-heading strong { font-size: 13px; line-height: 1.5; font-weight: 600; }
+.hive-job-graph .job-graph-kind { width: 30px; height: 30px; border-radius: 8px; background: #e8f1e2; color: #3b7853; font-size: 20px; display: grid; place-items: center; }
+.hive-job-graph .job-graph-job-id { display: block; color: #819486; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hive-job-graph .job-graph-kind-label { flex: none; color: #638269; font-size: 9px; border: 1px solid #e0e9dc; border-radius: 4px; padding: 3px 4px; }
+.hive-job-graph .job-graph-binding { display: flex; justify-content: space-between; gap: 8px; margin: 11px 0 8px; padding: 5px 6px; border-radius: 4px; background: #f1f6ee; font-size: 10px; color: #53745c; }
+.hive-job-graph .job-graph-binding > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hive-job-graph .job-graph-binding > span:last-child { flex: none; }
+.hive-job-graph .job-graph-phases { border-top: 1px solid #e5ece2; padding-top: 3px; }
+.hive-job-graph .job-graph-phase { display: flex; gap: 8px; align-items: center; min-height: 44px; }
+.hive-job-graph .job-graph-phase > div { flex: 1; min-width: 0; }
+.hive-job-graph .job-graph-phase-number { width: 19px; color: #77a078; font-size: 10px; }
+.hive-job-graph .job-graph-phase-label { display: flex; align-items: center; justify-content: space-between; gap: 5px; color: #45664d; font-size: 11px; }
+.hive-job-graph .job-graph-phase-label small { font-size: 9px; color: #8b9b8c; font-weight: normal; }
+.hive-job-graph .job-graph-phase-files { display: block; font-size: 10px; color: #648369; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.7; }
+.hive-job-graph .job-graph-phase.phase-empty .job-graph-phase-files { color: #acb9ac; }
+.hive-job-graph .graph-port { position: absolute; top: calc(50% - 12px); width: 24px; height: 24px; border-radius: 50%; padding: 0; border: 2px solid #699871; background: #fff; color: #43744e; font: 16px Consolas, monospace; display: grid; place-items: center; cursor: crosshair; touch-action: none; z-index: 2; }
+.hive-job-graph .graph-input { left: -13px; }
+.hive-job-graph .graph-output { right: -13px; background: #e8f1e1; }
+.hive-job-graph .graph-port:hover, .hive-job-graph .graph-port:focus-visible, .hive-job-graph .graph-port.available { color: #fff; background: #3e8153; border-color: #3e8153; box-shadow: 0 0 0 4px #629c6922; }
+.hive-job-graph .job-graph-connections { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 14px; }
+.hive-job-graph .job-graph-connection { display: flex; align-items: center; gap: 8px; border: 1px solid #d7e2d1; padding: 5px 6px 5px 10px; background: #fff; border-radius: 7px; font-size: 11px; }
+.hive-job-graph .job-graph-connection:hover, .hive-job-graph .job-graph-connection:focus-within { border-color: #8eb38e; }
+.hive-job-graph .job-graph-connection-path { display: inline-flex; align-items: center; gap: 7px; color: #3d6347; overflow-wrap: anywhere; }
+.hive-job-graph .job-graph-connection-path > span { color: #8eac8c; }
+.hive-job-graph .job-graph-condition { color: #8a9b86; font-size: 10px; white-space: nowrap; }
+.hive-job-graph .job-graph-connection button { border: 1px solid #ead8ce; border-radius: 4px; background: #fdf8f4; color: #ac6b52; padding: 3px 7px; font: inherit; cursor: pointer; white-space: nowrap; }
+.hive-job-graph .job-graph-connection button:hover { border-color: #c8876a; background: #faeae0; }
+.hive-job-graph .job-graph-empty { font-size: 11px; color: #8a9b86; }
+.hive-job-graph .job-graph-connecting { margin: 10px 0 0; font-size: 12px; color: #386f4d; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.hive-job-graph .job-graph-connecting button { font: inherit; border: 0; background: none; text-decoration: underline; color: inherit; cursor: pointer; }
+@media (max-width: 600px) { .workflow-graph.hive-job-graph { padding: 12px; } .hive-job-graph .job-graph-heading { flex-wrap: wrap; gap: 8px; } .hive-job-graph .job-graph-connection { flex-wrap: wrap; } }

@@ -33,6 +33,8 @@ def github_http(request, timeout=20):
         value = {'number': 42, 'head': {'sha': ASCEND_SHA},
                  'base': {'repo': {'full_name': 'vllm-project/vllm-ascend'}},
                  'html_url': 'https://github.com/vllm-project/vllm-ascend/pull/42'}
+    elif '/git/trees/' in path:
+        value = {'truncated': False, 'tree': [{'path': key, 'type': 'blob', 'mode': '100644'} for key in FILES]}
     elif '/contents/' in path:
         filename = path.split('/contents/', 1)[1]
         data = FILES[filename].encode()
@@ -319,3 +321,95 @@ class WorkflowHTTP(unittest.TestCase):
             response = self.client.post('/api/workflows', json=body)
             self.assertEqual(response.status_code, 422, response.text)
         self.assertEqual(self.client.get('/api/requests').json(), [])
+
+    def test_direct_upload_launch_and_default_ten_minute_job(self):
+        body = payload()
+        body['jobs'][0]['steps'] = [{'launch': 'bash "${input}" --host "${node0.ip}" --port "$MY_PORT"',
+                                    'files': [{'name': 'job.sh', 'content': FILES['scripts/job.sh']},
+                                              {'name': 'test.yaml', 'content': 'message: override\n'}]}]
+        response = self.client.post('/api/workflows', json=body)
+        self.assertEqual(response.status_code, 201, response.text)
+        task = response.json()
+        self.assertEqual(task['jobs'][0]['spec']['timeout_seconds'], 600)
+        self.assertEqual(task['spec']['files']['job.sh']['source_path'], 'scripts/job.sh')
+        self.assertEqual(task['spec']['files']['test.yaml']['content'], 'message: override\n')
+        node = self.s.inventory.create(SYSTEM, {'name': 'test-node', 'host': '10.0.0.1', 'password': 'test-only', 'generation': 'A2', 'model': 'test'})
+        self.s.telemetry.ingest(node['id'], Snapshot([DeviceSample(str(i), str(i), '0', str(i), 64 * 1024**3, 0, 0, 'OK', process_complete=True) for i in range(2)], BOOT, now()))
+        remote = Remote()
+        self.s.workflows.transport = remote
+        space = self.client.get('/api/spaces').json()[0]
+        req = self.s.resources.reserve(space['request_id'])
+        self.s.resources.deliver(req['id'], req['version'])
+        for _ in range(20):
+            self.s.workflows.tick_space(space['id'])
+        detail = self.client.get('/api/workflows/' + task['id']).json()
+        self.assertEqual(detail['status'], 'SUCCEEDED', detail)
+        scripts = [a['script'] for a in remote.attempts.values() if '# HIVE_PHASE steps' in a['script']]
+        self.assertTrue(any('job.sh' in script and '10.0.0.1' in script and '$MY_PORT' in script for script in scripts))
+
+    def test_upload_changed_execution_code_or_yaml_without_command_rejects(self):
+        for step in [{'launch': 'bash job.sh', 'files': [{'name': 'job.sh', 'content': 'echo changed'}]},
+                     {'files': [{'name': 'test.yaml', 'content': 'message: config'}]}]:
+            body = payload()
+            body['jobs'][0]['steps'] = [step]
+            response = self.client.post('/api/workflows', json=body)
+            self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(self.client.get('/api/requests').json(), [])
+
+    def test_allocated_node_mapping_and_dynamic_ip_are_frozen_for_reuse(self):
+        node = self.s.inventory.create(SYSTEM, {'name': 'test-node', 'host': '10.0.0.1', 'password': 'test-only', 'generation': 'A2', 'model': 'test'})
+        entries = [{'kind': 'model', 'name': 'org/weights', 'target': '/mnt/models/weights'},
+                   {'kind': 'dataset', 'name': 'org/data', 'target': '/mnt/datasets/data'},
+                   {'kind': 'image', 'name': 'server+base', 'target': 'example/image:fixed'},
+                   {'kind': 'package', 'name': 'torch', 'target': '/mnt/packages/torch.whl'}]
+        self.s.node_mappings.replace(node['id'], SYSTEM, entries, 0)
+        self.s.telemetry.ingest(node['id'], Snapshot([DeviceSample(str(i), str(i), '0', str(i), 64 * 1024**3, 0, 0, 'OK', process_complete=True) for i in range(2)], BOOT, now()))
+        remote = Remote()
+        self.s.workflows.transport = remote
+        body = payload()
+        body['environments'][0]['image'] = 'server+base'
+        task = self.client.post('/api/workflows', json=body).json()
+        space = self.client.get('/api/spaces').json()[0]
+        req = self.s.resources.reserve(space['request_id'])
+        self.s.resources.deliver(req['id'], req['version'])
+        self.s.workflows.tick_space(space['id'])
+        self.s.node_mappings.replace(node['id'], SYSTEM, [], 1)
+        for _ in range(20):
+            self.s.workflows.tick_space(space['id'])
+        detail = self.client.get('/api/workflows/' + task['id']).json()
+        self.assertEqual(detail['status'], 'SUCCEEDED', detail)
+        actual = self.client.get('/api/spaces').json()[0]['environments'][1]
+        self.assertEqual(actual['resource_mappings']['model']['org/weights'], '/mnt/models/weights')
+        self.assertEqual(actual['mappings_version'], 1)
+        scripts = [a['script'] for a in remote.attempts.values()]
+        self.assertTrue(any('export HIVE_NODE0_IP=10.0.0.1' in script and 'HIVE_RESOURCE_MAP_JSON=' in script and '/mnt/datasets/data' in script for script in scripts))
+        self.assertTrue(all('server+base' not in event[1] for event in remote.events if event[0] == 'image-inspect'))
+
+    def test_upload_bootstrap_uses_frozen_command_and_invalid_inputs_do_not_allocate(self):
+        for step in [{'launch': 'cat "${input}"'}, {'launch': '   '}, {'launch': 'bash job.sh', 'files': [{'name': '../job.sh', 'content': 'x'}]}]:
+            body = payload()
+            body['jobs'][0]['steps'] = [step]
+            response = self.client.post('/api/workflows', json=body)
+            self.assertEqual(response.status_code, 422, response.text)
+        body = payload()
+        body['jobs'][0]['artifacts'] = [{'environment': 'outside', 'label': 'Output', 'path': '/out.txt'}]
+        self.assertEqual(self.client.post('/api/workflows', json=body).status_code, 422)
+        self.assertEqual(self.client.get('/api/requests').json(), [])
+        with patch.dict(FILES, {'other/job.sh': FILES['scripts/job.sh']}):
+            body = payload()
+            body['jobs'][0]['steps'] = [{'launch': 'bash job.sh', 'files': [{'name': 'job.sh', 'content': FILES['scripts/job.sh']}]}]
+            self.assertEqual(self.client.post('/api/workflows', json=body).status_code, 422)
+        body = payload()
+        body['environments'][0]['bootstrap'] = {'launch': 'bash job.sh "${image}" "${container_name}"', 'files': [{'name': 'job.sh', 'content': FILES['scripts/job.sh']}]}
+        response = self.client.post('/api/workflows', json=body)
+        self.assertEqual(response.status_code, 201, response.text)
+        node = self.s.inventory.create(SYSTEM, {'name': 'test-node', 'host': '10.0.0.1', 'password': 'test-only', 'generation': 'A2', 'model': 'test'})
+        self.s.telemetry.ingest(node['id'], Snapshot([DeviceSample(str(i), str(i), '0', str(i), 64 * 1024**3, 0, 0, 'OK', process_complete=True) for i in range(2)], BOOT, now()))
+        remote = Remote()
+        self.s.workflows.transport = remote
+        space = self.client.get('/api/spaces').json()[0]
+        req = self.s.resources.reserve(space['request_id'])
+        self.s.resources.deliver(req['id'], req['version'])
+        for _ in range(20):
+            self.s.workflows.tick_space(space['id'])
+        self.assertEqual(self.client.get('/api/workflows/' + response.json()['id']).json()['status'], 'SUCCEEDED')

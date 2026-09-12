@@ -19,6 +19,7 @@ def build_services(settings):
     from .workflows import Workflows
     from .sources import SourceService
     from .presets import Presets
+    from .node_mappings import NodeMappings
     db=Database(settings)
     inventory=Inventory(db,settings)
     transport=SSHTransport(settings)
@@ -31,12 +32,16 @@ def build_services(settings):
     telemetry=Telemetry(db,inventory,telemetry_adapters,catalog,settings)
     resources=ResourceService(db,settings)
     sources=SourceService()
+    node_mappings=NodeMappings(db)
+    workflows=Workflows(db,resources,inventory,transport,settings,sources)
+    workflows.node_mappings=node_mappings
     return SimpleNamespace(db=db,settings=settings,identity=Identity(db,settings),inventory=inventory,
         transport=transport,telemetry_transport=telemetry_transport,benchmark_transport=benchmark_transport,
         onboarding=Onboarding(settings),
         sources=sources,
+        node_mappings=node_mappings,
         presets=Presets(db,sources,settings.workflow_sample_preset_id),
-        workflows=Workflows(db,resources,inventory,transport,settings,sources),
+        workflows=workflows,
         compute_benchmark=ComputeBenchmark(db,settings,inventory,telemetry,benchmark_transport),
         adapters=adapters,catalog=catalog,telemetry=telemetry,resources=resources,reporting=Reporting(db,settings),
         probes=AdmissionProbe(db,transport,adapters,inventory),

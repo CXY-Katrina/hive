@@ -13,6 +13,11 @@ MAX_TOTAL = 16 * 1024 * 1024
 IDENTIFIER = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}')
 
 
+def artifact_key(item):
+    namespace = item.get('environment', '')
+    return hashlib.sha256(((namespace + ':' if namespace else '') + item['path']).encode()).hexdigest()
+
+
 def metric_document(raw):
     def pairs(values):
         result = {}
@@ -70,24 +75,28 @@ class WorkflowArtifacts:
             if candidate == self.root:
                 break
 
-    def collect(self, node, identity, task_id, job_id, items):
+    def collect(self, node, identity, task_id, job_id, items, targets=None):
         self._directory(task_id,job_id)
         if not isinstance(items,list) or len(items)>16:
             raise DomainError('每个 job 最多归档 16 个产物',422)
+        items = [{**item, 'kind': item.get('kind', 'auto')} if isinstance(item, dict) else item for item in items]
         seen = set()
         for item in items:
-            if (not isinstance(item,dict) or set(item)!={'path','label','kind'}
+            if (not isinstance(item,dict) or set(item)-{'path','label','kind','environment'} or not {'path','label','kind'} <= set(item)
                     or not isinstance(item['path'],str) or not item['path'].startswith('/')
                     or len(item['path'])>4096 or '\x00' in item['path']
                     or any(part in {'','.','..'} for part in item['path'][1:].split('/'))
-                    or item['path'] in seen or not isinstance(item['label'],str) or not 1<=len(item['label'].strip())<=128
-                    or item['kind'] not in {'file','metrics'}):
-                raise DomainError('产物须有唯一的容器内绝对文件路径、label 和 file/metrics kind',422)
-            seen.add(item['path'])
+                    or (item.get('environment', ''), item['path']) in seen or not isinstance(item['label'],str) or not 1<=len(item['label'].strip())<=128
+                    or item['kind'] not in {'file','metrics','auto'}):
+                raise DomainError('产物须有服务器环境、唯一绝对文件路径和名称',422)
+            if item.get('environment') and item['environment'] not in (targets or {}):
+                raise DomainError('产物服务器环境不可用', 422)
+            seen.add((item.get('environment', ''), item['path']))
         artifacts, metrics, remaining = [], [], MAX_TOTAL
         for item in items:
             try:
-                raw = self.runtime.read_file(node,identity,item['path'],max_bytes=min(MAX_FILE,remaining))
+                target_node, target_identity = targets[item['environment']] if item.get('environment') else (node, identity)
+                raw = self.runtime.read_file(target_node,target_identity,item['path'],max_bytes=min(MAX_FILE,remaining))
             except DomainError:
                 raise
             except Exception:
@@ -95,10 +104,12 @@ class WorkflowArtifacts:
             if not isinstance(raw,bytes) or len(raw)>min(MAX_FILE,remaining):
                 raise DomainError('产物超过单文件 4 MiB 或总计 16 MiB 上限',422)
             remaining -= len(raw)
-            artifact_id = hashlib.sha256(item['path'].encode()).hexdigest()
+            artifact_id = artifact_key(item)
             meta = dict(id=artifact_id,path=item['path'],label=item['label'],kind=item['kind'],
-                        size=len(raw),sha256=hashlib.sha256(raw).hexdigest(),container_id=identity['container_id'],
-                        host_boot_id=identity['host_boot_id'])
+                        size=len(raw),sha256=hashlib.sha256(raw).hexdigest(),container_id=target_identity['container_id'],
+                        host_boot_id=target_identity['host_boot_id'])
+            if item.get('environment'):
+                meta['environment'] = item['environment']
             directory = self._directory(task_id,job_id,artifact_id)
             directory.mkdir(parents=True,exist_ok=True)
             self._guard(directory)
@@ -124,7 +135,14 @@ class WorkflowArtifacts:
                 if saved != meta:
                     raise DomainError('产物声明或容器身份与原归档不一致',409) from None
             artifacts.append(meta)
-            if item['kind']=='metrics':
+            is_metrics = item['kind'] == 'metrics'
+            if item['kind'] == 'auto':
+                try:
+                    document = json.loads(raw)
+                    is_metrics = isinstance(document, dict) and 'metrics' in document
+                except (ValueError, UnicodeError, RecursionError):
+                    pass
+            if is_metrics:
                 metrics.append({'artifact_id':artifact_id,**metric_document(raw)})
         return {'artifacts':artifacts,'metrics':metrics}
 

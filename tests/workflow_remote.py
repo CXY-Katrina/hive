@@ -22,6 +22,7 @@ class Remote:
 
     def run(self, node, script, timeout=20):
         if '# HIVE_BOOTSTRAP_INSPECT' in script:
+            self.events.append(('image-inspect', script))
             return CommandResult('sha256:' + 'b' * 64 + '\n' + 'c' * 64 + '\n', '', 0)
         if '# HIVE_BOOTSTRAP_RUN' in script:
             name = re.search(r'# container_name (\S+)', script)[1]

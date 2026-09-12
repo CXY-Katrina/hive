@@ -24,3 +24,16 @@ Browser tests exercise rendering, user input, dependencies, uploads and these AP
 Artifact extension: jobs may declare `artifacts:[{path:absolute_path,label,kind:'file'|'metrics'}]`. Workflow creation may include `preset_id` after applying an enabled preset. GET job detail adds cards, endpoint, attempts, logs with display_truncated, downloadable artifacts, and generic metrics/verdict. Space environments add host/node_id/logical_ids/boot_id/logs/requested_packages/identity. Requested dependency versions are not presented as observed installed versions; external verification logs remain the evidence.
 
 Downloads use `/api/workflows/{workflow}/jobs/{job}/artifacts/{artifact}` and `/api/workflows/{workflow}/jobs/{job}/logs/{phase}`. Successful process execution is labeled separately from external business verdicts; absent metrics/verdict remains “业务判定未提供”.
+
+
+## Compact composer revision (2026-09-12)
+
+New UI steps submit `{launch:string,files:[{name,content}]}`. Both fields are optional individually, but an empty step is rejected. Uploaded files are sh/py/yaml/yml (256 KiB text per file); the fixed PR tree resolves unique picked filenames to source paths. Executable contents must match the PR. YAML overrides are hashed separately and require a launch command. Upload aliases and original source paths are retained; conflicting names fail before allocation. A launch command runs in the task's fixed source workspace, in the bound environment shell. ${input} denotes the first uploaded file and requires an upload; Bash variables remain script-owned; known `${node0.ip}` style platform references are substituted. Legacy path/type/args/runner steps remain accepted; do not mix both shapes in one step.
+
+Job timeout defaults to 600 seconds; the UI edits minutes. Ports remain a legacy API field and are omitted from new UI configuration. Dependencies come from graph edges. Artifacts accept `{environment,label,path}`; environment names a container in the same space, or defaults to the current job environment. Different environments may expose the same path. Missing kind defaults to `auto`: ordinary files stay raw, JSON declaring `metrics` is checked against the existing generic result protocol; `file` and `metrics` remain compatible API values.
+
+Node resource mappings use `GET /api/nodes/{id}/mappings` and administrator `PUT {version,entries:[{kind,name,target}]}`. Kinds are model/dataset/image/package. NodeCreate optionally accepts mappings. First allocation freezes version and all entries per node; space environments expose resource_mappings, mappings_version and resolved_image. Image aliases resolve before local image inspection. Mapping edits do not mutate retained environments.
+
+Runtime exports HIVE_NODE0_IP (and other allocated nodes), HIVE_HOST_IP, HIVE_CONTAINER_NAME and HIVE_RESOURCE_MAP_JSON. Bash scripts can call `hive_resource kind name`; Python scripts read the JSON environment variable. Registered paths must be accessible through the external container startup's mounts.
+
+Upload filename discovery uses GitHub's [Git trees API](https://docs.github.com/en/rest/git/trees#get-a-tree) at the fixed head SHA. Truncated trees are rejected rather than treating partial matches as unique.

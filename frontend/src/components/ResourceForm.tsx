@@ -6,12 +6,11 @@ export const defaultResource = (): ResourceSpec => ({ generation: 'A3', model: '
 export function ResourceForm({ value, onChange, task = false }: { value: ResourceSpec; onChange: (value: ResourceSpec) => void; task?: boolean }) {
   const update = <K extends keyof ResourceSpec>(key: K, next: ResourceSpec[K]) => onChange({ ...value, [key]: next, ...(key === 'machine_count' && Number(next) <= 1 ? { require_interconnect: false } : {}) });
   return <div className="resource-form"><div className="form-grid">
-    <Field label="NPU 代际"><select value={value.generation} onChange={e => update('generation', e.target.value)}>{['A2', 'A3', 'A5'].map(item => <option key={item}>{item}</option>)}</select></Field>
+    <div className="field"><span>NPU 代际</span><div className="choice-buttons" role="group" aria-label="NPU 代际">{['A2', 'A3', 'A5'].map(item => <button type="button" key={item} aria-pressed={value.generation === item} onClick={() => update('generation', item)}>{item}</button>)}</div></div>
     <Field label="机型" hint="留空匹配该代际所有机型"><input value={value.model} onChange={e => update('model', e.target.value)} placeholder="不限机型" maxLength={128} /></Field>
-    <Field label="分配方式"><select value={value.mode} onChange={e => update('mode', e.target.value as ResourceSpec['mode'])}><option value="partial">部分卡</option><option value="whole">整机独占</option></select></Field>
+    <div className="field"><span>分配方式</span><div className="choice-buttons" role="group" aria-label="分配方式"><button type="button" aria-pressed={value.mode === 'partial'} onClick={() => update('mode', 'partial')}>部分卡</button><button type="button" aria-pressed={value.mode === 'whole'} onClick={() => update('mode', 'whole')}>整机独占</button></div></div>
     <Field label="机器数量"><input type="number" min={1} max={64} required value={value.machine_count} onChange={e => update('machine_count', Number(e.target.value))} /></Field>
     {value.mode === 'partial' && <Field label="每机申请卡数"><input type="number" min={1} max={128} required value={value.cards_per_node} onChange={e => update('cards_per_node', Number(e.target.value))} /></Field>}
-    <Field label="每卡最低显存（GiB）"><input type="number" min={0} max={65536} step={1} required value={value.min_memory_gib} onChange={e => update('min_memory_gib', Number(e.target.value))} /></Field>
   </div>
   {value.machine_count > 1 && <label className="check-field"><input type="checkbox" checked={value.require_interconnect} onChange={e => update('require_interconnect', e.target.checked)} /><span>需要多机互联<small>分配前复验所选机器与卡的双向连通性</small></span></label>}
   <div className="queue-row"><label className="check-field"><input type="checkbox" checked={value.queue} onChange={e => update('queue', e.target.checked)} /><span>资源不足时排队</span></label>{value.queue && <label className="inline-field">最长等待 <input type="number" min={1} max={10080} required value={value.wait_minutes} onChange={e => update('wait_minutes', Number(e.target.value))} /> 分钟</label>}</div>

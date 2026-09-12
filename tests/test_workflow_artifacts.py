@@ -107,3 +107,24 @@ class WorkflowArtifactTests(unittest.TestCase):
         with self.assertRaises(DomainError):
             archive.collect(NODE,IDENTITY,'task','job',[])
         self.assertEqual(self.ssh.calls,[])
+
+    def test_same_path_on_distinct_environments_is_archived_without_collision(self):
+        other = {**IDENTITY, 'container_id': 'c' * 64}
+        archive = self.archive(b'server-output', b'client-output')
+        result = archive.collect(NODE, IDENTITY, 'task', 'job', [
+            {'environment': 'server', 'path': '/out.txt', 'label': 'Server', 'kind': 'file'},
+            {'environment': 'client', 'path': '/out.txt', 'label': 'Client', 'kind': 'file'}],
+            targets={'server': (NODE, IDENTITY), 'client': (NODE, other)})
+        left, right = result['artifacts']
+        self.assertNotEqual(left['id'], right['id'])
+        self.assertEqual(right['container_id'], other['container_id'])
+        self.assertEqual(archive.read('task', 'job', left['id'])['path'].read_bytes(), b'server-output')
+        self.assertEqual(archive.read('task', 'job', right['id'])['path'].read_bytes(), b'client-output')
+
+    def test_output_without_type_uses_generic_metric_document_or_preserves_plain_file(self):
+        archive = self.archive(b'{"metrics":[],"verdict":"failed"}', b'plain text output')
+        metric = archive.collect(NODE, IDENTITY, 'task', 'job', [{'path': '/result.json', 'label': 'Result'}])
+        self.assertEqual(metric['metrics'][0]['verdict'], 'failed')
+        plain = archive.collect(NODE, IDENTITY, 'task', 'job', [{'path': '/result.txt', 'label': 'Log'}])
+        self.assertEqual(plain['metrics'], [])
+        self.assertEqual(archive.read('task', 'job', plain['artifacts'][0]['id'])['path'].read_bytes(), b'plain text output')

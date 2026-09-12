@@ -52,6 +52,8 @@ def create_app(services=None, settings=None):
     def current(request: Request):
         return services.identity.current(request.cookies.get("hive_session"))
 
+    from .node_mappings import register_node_mapping_routes
+    register_node_mapping_routes(app, services, current, respond)
     from .workflows import register_workflow_routes
     register_workflow_routes(app, services, current, respond)
     from .sources_api import register_source_routes
