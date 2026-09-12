@@ -21,6 +21,11 @@ class ResourceService:
             with self.db.transaction() as c:
                 return self.create(actor, spec, idempotency_key, purpose, c)
         c = cursor
+        if not actor.admin:
+            c.execute('SELECT can_request FROM users WHERE id=%s AND deleted_at IS NULL FOR UPDATE', (actor.id,))
+            member = c.fetchone()
+            if not member or not member['can_request']:
+                raise DomainError('尚未获得服务器申请权限，请联系管理员开启', 403)
         stamp, request_id = now(), uid()
         wait = spec.get("wait_minutes")
         deadline = stamp + timedelta(minutes=wait) if wait else None

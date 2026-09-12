@@ -12,6 +12,7 @@ class Settings:
     mysql_database: str = "hive"
     secret_key: str = ""
     admin_users: tuple[str, ...] = ("admin",)
+    admin_password_hash: str = ""
     origin: str = "http://127.0.0.1:18000"
     cookie_secure: bool = True
     known_hosts: Path = Path("data/known_hosts")

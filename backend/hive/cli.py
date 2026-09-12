@@ -7,7 +7,7 @@ from .config import Settings
 
 def main():
     parser=argparse.ArgumentParser(prog="hive")
-    parser.add_argument("command",choices=["keygen","migrate","api","worker"])
+    parser.add_argument("command",choices=["keygen","admin-password","migrate","api","worker"])
     parser.add_argument("--host",default="0.0.0.0")
     parser.add_argument("--port",type=int,default=18000)
     parser.add_argument("--env-file",default=".env")
@@ -17,6 +17,14 @@ def main():
     logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(name)s %(message)s")
     if args.command=="keygen":
         print(base64.urlsafe_b64encode(os.urandom(32)).decode())
+        return
+    if args.command == 'admin-password':
+        import bcrypt
+        from getpass import getpass
+        password = getpass('管理员密码: ').encode()
+        if not 1 <= len(password) <= 72:
+            parser.error('密码必须为 1–72 个 UTF-8 字节')
+        print('HIVE_ADMIN_PASSWORD_HASH=' + bcrypt.hashpw(password, bcrypt.gensalt()).decode())
         return
     settings=Settings.from_env(args.env_file)
     if args.command=="migrate":

@@ -114,6 +114,8 @@ class Inventory:
             d["processes"] = decode(d["processes"], [])
             d["extensions"] = decode(d["extensions"], {})
             d["status"] = device_status(d, stale_seconds=self.settings.stale_seconds)
+            d['sample_age_seconds'] = max(0, (now() - d['sampled_at']).total_seconds()) if d.get('sampled_at') else None
+            d['stale_seconds'] = self.settings.stale_seconds
             by_node.setdefault(d["node_id"], []).append(d)
         for node in nodes:
             node["metadata"] = decode(node["metadata"], {})
@@ -240,11 +242,9 @@ class Inventory:
             self.db.audit(c, actor, 'node.remove', node_id)
 
     def credentials(self, node_id, actor):
-        allowed = actor.admin or self.db.one("""SELECT r.id FROM resource_requests r
-                   JOIN device_ownership o ON o.request_id=r.id JOIN devices d ON d.id=o.device_id
-                   WHERE d.node_id=%s AND r.owner_user_id=%s AND r.status='ACTIVE' LIMIT 1""", (node_id, actor.id))
+        allowed = actor.admin or self.db.one("SELECT id FROM users WHERE id=%s AND deleted_at IS NULL AND can_view_credentials=TRUE", (actor.id,))
         if not allowed:
-            raise DomainError("仅管理员或有效申请人可查看凭据", 403)
+            raise DomainError("尚未获得查看服务器密码的权限，请联系管理员开启", 403)
         node = self.connection(node_id)
         with self.db.transaction() as c:
             self.db.audit(c, actor, "credentials.view", node_id)

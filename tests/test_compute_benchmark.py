@@ -249,7 +249,7 @@ class BenchmarkIntegration(unittest.TestCase):
             self.assertEqual(client.post(endpoint).status_code, 401)
             client.post('/api/session', json={'username': 'alice'})
             self.assertEqual(client.post(endpoint).status_code, 403)
-            client.post('/api/session', json={'username': 'admin'})
+            client.post('/api/session', json={'username': 'admin', 'password': 'test-admin'})
             response = client.post(endpoint)
             self.assertEqual(response.status_code, 202)
             self.assertEqual(response.json()['status'], 'QUEUED')

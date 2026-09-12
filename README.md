@@ -180,6 +180,7 @@ HIVE_MYSQL_PASSWORD=替换为第3节设置的应用数据库密码
 HIVE_MYSQL_DATABASE=hive
 HIVE_SECRET_KEY=替换为keygen输出的整行
 HIVE_ADMIN_USERS=admin
+HIVE_ADMIN_PASSWORD_HASH=替换为admin-password命令生成的密码哈希
 HIVE_ORIGIN=http://替换为中心机局域网IP:18000
 HIVE_COOKIE_SECURE=false
 HIVE_KNOWN_HOSTS=data/known_hosts
@@ -196,6 +197,7 @@ HIVE_DATA_DIR=data
 | `HIVE_MYSQL_USER` / `PASSWORD` / `DATABASE` | 填实际账号、密码、库名 | API/worker 必须使用同一个库 |
 | `HIVE_SECRET_KEY` | 必填 | `keygen` 生成的 URL-safe Base64 密钥 |
 | `HIVE_ADMIN_USERS` | `admin` | 逗号分隔管理员登记名，如 `admin,cxy` |
+| `HIVE_ADMIN_PASSWORD_HASH` | 必填 | 运行 `python -m hive.cli admin-password`，交互输入管理员密码，复制生成的哈希配置；不保存明文密码 |
 | `HIVE_ORIGIN` | 填实际访问来源 | 协议、主机、端口必须与浏览器一致 |
 | `HIVE_COOKIE_SECURE` | 示例为 `false`，代码缺省为 `true` | 内网 HTTP 为 false；HTTPS 为 true |
 | `HIVE_KNOWN_HOSTS` | `data/known_hosts` | 已核验的主机公钥，运行账号可读 |
@@ -207,7 +209,9 @@ HIVE_DATA_DIR=data
 
 配置按字面读取，不执行 shell 插值；进程环境变量优先于配置文件。相对路径按**工作目录**解析，本文固定为 `C:\hive`，也可填写绝对路径。修改配置后重启 API 和 worker。务必确认 `--env-file` 指定文件存在，否则程序可能使用默认值。
 
-用户名登录只做团队协作登记，不验证真实身份；知道管理员登记名的人可以按该身份登录。按当前定位部署在受控团队网络，不能将它视为已经实现密码或企业身份认证的系统。
+管理员必须使用密码登录，未配置密码哈希时拒绝管理员登录。升级后原有的免密管理员会话失效，需重新登录。普通成员仍使用固定用户名登记；首次登录后默认只能查看信息，由管理员在“人员管理”中分别开启服务器申请和查看服务器密码权限。后端实时检查权限，已有申请不会自动授予密码查看权限；撤销申请权限后仍可归还已有资源。
+
+人员管理可删除普通成员，删除会使其全部会话失效并禁止该用户名重新登录，同时保留历史申请和审计记录。有未结束的申请或任务时须先结束；不能删除管理员。普通成员用户名登记不验证真实身份，适用于受控团队网络。
 
 ### 5.3 创建表
 
@@ -325,7 +329,7 @@ curl.exe --noproxy "*" http://127.0.0.1:18000/api/health
 
 预期监听 `0.0.0.0:18000`，返回 `{"status":"ok"}`。健康接口只检查数据库，继续验证：
 
-1. 打开 `.env` 中对应的 `http://中心机IP:18000/login`，页面样式正常，输入 `admin` 登录。
+1. 打开 `.env` 中对应的 `http://中心机IP:18000/login`，页面样式正常，输入 `admin` 和配置的管理员密码登录。
 2. 新数据库没有节点和申请，这是预期状态。
 3. 进入“集群管理 → 纳管节点”，填写真实 IP、SSH 端口、账号、密码、A2/A3/A5 代际。
 4. 等待 worker 完整采样，确认各卡数据及采样时间持续更新。

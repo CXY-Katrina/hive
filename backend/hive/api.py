@@ -8,7 +8,7 @@ from fastapi.encoders import jsonable_encoder
 import pymysql
 from .config import Settings
 from .domain import DomainError, decode
-from .schemas import Login, NodeConnection, NodeCreate, NodeUpdate, RequestCreate, TaskCreate
+from .schemas import Login, MemberPermissions, NodeConnection, NodeCreate, NodeUpdate, RequestCreate, TaskCreate
 
 
 def respond(value, status=200):
@@ -52,6 +52,7 @@ def create_app(services=None, settings=None):
     def current(request: Request):
         return services.identity.current(request.cookies.get("hive_session"))
 
+
     @app.get("/api/health")
     def health():
         services.db.one("SELECT 1 AS ok")
@@ -59,7 +60,7 @@ def create_app(services=None, settings=None):
 
     @app.post("/api/session")
     def login(body: Login):
-        token, actor = services.identity.login(body.username)
+        token, actor = services.identity.login(body.username, body.password)
         response = respond(asdict(actor))
         response.set_cookie("hive_session",token,max_age=86400,httponly=True,
                             secure=settings.cookie_secure,samesite="lax",path="/")
@@ -68,6 +69,20 @@ def create_app(services=None, settings=None):
     @app.get("/api/session")
     def session(actor=Depends(current)):
         return asdict(actor)
+
+    @app.get('/api/members')
+    def members(actor=Depends(current)):
+        return respond(services.identity.members(actor))
+
+    @app.patch('/api/members/{member_id}')
+    def member_permissions(member_id: str, body: MemberPermissions, actor=Depends(current)):
+        services.identity.permissions(actor, member_id, body.model_dump())
+        return {'ok': True}
+
+    @app.delete('/api/members/{member_id}')
+    def remove_member(member_id: str, actor=Depends(current)):
+        services.identity.remove(actor, member_id)
+        return {'ok': True}
 
     @app.delete("/api/session")
     def logout(request: Request, actor=Depends(current)):

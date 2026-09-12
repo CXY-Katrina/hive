@@ -1,10 +1,11 @@
 export type ID = string | number;
-export interface User { id: ID; username: string; admin: boolean }
+export interface User { id: ID; username: string; admin: boolean; can_request: boolean; can_view_credentials: boolean }
 export interface ProcessInfo { pid: number; name?: string; command?: string; container_name?: string | null; container_id?: string | null; container_status?: string; container_kind?: string; reason?: string }
 export interface Device {
   id: ID; slot: string | number; ai_core: number | null; memory_used: number | null; memory_total: number | null;
   health: string; quality: string; sampled_at?: string; reason?: string; processes: ProcessInfo[]; owner_name?: string | null;
   request_id?: ID | null; status: string; protected_until?: string | null; extensions?: Record<string, number | null>;
+  sample_age_seconds?: number | null; stale_seconds?: number;
 }
 export interface Mount { target?: string; path?: string; source?: string; fstype?: string; status?: string; shared_storage_id?: string; total_bytes?: number; available_bytes?: number; free_bytes?: number; writable?: boolean; readable?: boolean; reason?: string; detail?: string; checked_at?: string }
 export interface HardwareProfile {

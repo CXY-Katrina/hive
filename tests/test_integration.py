@@ -1,5 +1,6 @@
 """Uses a separate disposable MySQL database; never touches configured production tables."""
 import base64
+import bcrypt
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import timedelta
@@ -29,7 +30,7 @@ class MySQLIntegration(unittest.TestCase):
         cls.settings=Settings(mysql_port=int(os.environ["HIVE_TEST_MYSQL_PORT"]),
               mysql_user=os.getenv("HIVE_TEST_MYSQL_USER","root"),mysql_password=os.getenv("HIVE_TEST_MYSQL_PASSWORD",""),
               mysql_database=cls.name,secret_key=base64.urlsafe_b64encode(b"x"*32).decode(),cookie_secure=False,
-              origin="http://testserver")
+              origin="http://testserver", admin_password_hash=bcrypt.hashpw(b'test-admin', bcrypt.gensalt(rounds=4)).decode())
         connection=pymysql.connect(host="127.0.0.1",port=cls.settings.mysql_port,user=cls.settings.mysql_user,
                                    password=cls.settings.mysql_password,autocommit=True)
         with connection.cursor() as c:
@@ -54,9 +55,11 @@ class MySQLIntegration(unittest.TestCase):
         self.catalog=MetricCatalog()
         self.telemetry=Telemetry(self.db,self.inventory,{},self.catalog,self.settings)
         self.resources=ResourceService(self.db,self.settings)
-        _,self.admin=self.identity.login("admin")
+        _,self.admin=self.identity.login("admin", "test-admin")
         _,self.alice=self.identity.login("alice")
         _,self.bob=self.identity.login("bob")
+        for member in (self.alice, self.bob):
+            self.identity.permissions(self.admin, member.id, {'can_request': True, 'can_view_credentials': False})
 
     def node(self,host="10.0.0.1",cards=4):
         n=self.inventory.create(self.admin,{"name":host,"host":host,"password":"test-secret","generation":"A2","model":"test-4"})
@@ -233,6 +236,9 @@ class MySQLIntegration(unittest.TestCase):
         req=self.request()
         reserved=self.resources.reserve(req["id"])
         self.resources.deliver(req["id"],reserved["version"])
+        with self.assertRaises(DomainError):
+            self.inventory.credentials(n["id"],self.alice)
+        self.identity.permissions(self.admin, self.alice.id, {'can_request': True, 'can_view_credentials': True})
         self.assertEqual(self.inventory.credentials(n["id"],self.alice)["password"],"test-secret")
 
     def test_http_sessions_and_owner_tampering(self):

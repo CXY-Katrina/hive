@@ -34,6 +34,8 @@ class Actor:
     id: str
     username: str
     admin: bool = False
+    can_request: bool = False
+    can_view_credentials: bool = False
 
 
 SYSTEM = Actor("system", "system", True)

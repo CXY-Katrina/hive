@@ -5,12 +5,14 @@ import type { User } from './types';
 import { ErrorNotice, Icon, Link, Loading } from './components/ui';
 import { NodesPage } from './pages/NodesPage';
 import { ClustersPage } from './pages/ClustersPage';
+import { MembersPage } from './pages/MembersPage';
 import { RequestsPage } from './pages/RequestsPage';
 
 const navigation = [
   { path: '/nodes/', label: '实时信息', icon: 'nodes' },
   { path: '/clusters', label: '集群管理', icon: 'server' },
   { path: '/requests', label: '机器申请', icon: 'request' },
+  { path: '/members', label: '人员管理', icon: 'user' },
 ];
 
 // Keep the task implementation available for a later release, without exposing
@@ -35,6 +37,13 @@ export default function App() {
   };
 
   useEffect(() => { void loadSession(); }, []);
+  useEffect(() => {
+    if (!user) return;
+    const refresh = () => { if (!document.hidden) void api<User>('/session').then(setUser).catch(err => { if (err instanceof ApiError && err.status === 401) setUser(null); }); };
+    const timer = window.setInterval(refresh, 15000);
+    window.addEventListener('focus', refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', refresh); };
+  }, [user?.id]);
   useEffect(() => {
     const expire = () => {
       initialPath.current = workspacePath(window.location.pathname);
@@ -67,7 +76,8 @@ export default function App() {
   }
   if (!user) return <Login onLogin={value => { setUser(value); navigate(initialPath.current, true); }} />;
 
-  const active = navigation.find(item => path.startsWith(item.path.replace(/\/$/, '')));
+  const visibleNavigation = navigation.filter(item => item.path !== '/members' || user.admin);
+  const active = visibleNavigation.find(item => path.startsWith(item.path.replace(/\/$/, '')));
   return <div className="app-shell">
     <aside className="sidebar">
       <Link to="/nodes/" className="brand">
@@ -76,7 +86,7 @@ export default function App() {
       </Link>
       <div className="nav-caption">WORKSPACE / 工作空间</div>
       <nav aria-label="主导航">
-        {navigation.map((item, index) =>
+        {visibleNavigation.map((item, index) =>
           <Link key={item.path} to={item.path} label={item.label}
             className={`nav-link ${active?.path === item.path ? 'active' : ''}`}>
             <Icon name={item.icon} /><span>{item.label}</span>
@@ -107,6 +117,7 @@ export default function App() {
         <ErrorNotice text={error} />
         {path.startsWith('/nodes') ? <NodesPage nodeId={path.split('/').filter(Boolean)[1]} />
           : path.startsWith('/clusters') ? <ClustersPage user={user} />
+          : path.startsWith('/members') ? user.admin ? <MembersPage /> : <div className="notice error">此页面仅管理员可访问。</div>
           : path.startsWith('/requests') ? <RequestsPage user={user} />
           : workspacePath(path) !== path ? <Loading />
           : <div className="panel empty"><h1>页面不存在</h1><Link to="/nodes/">返回实时信息</Link></div>}
@@ -118,6 +129,7 @@ export default function App() {
 
 function Login({ onLogin }: { onLogin: (user: User) => void }) {
   const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -129,7 +141,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
       return;
     }
     setBusy(true); setError('');
-    try { onLogin(await post<User>('/session', { username: username.trim() })); }
+    try { onLogin(await post<User>('/session', { username: username.trim(), password })); }
     catch (err) { setError(errorText(err)); }
     finally { setBusy(false); }
   };
@@ -168,11 +180,12 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
               onChange={event => setUsername(event.target.value)} placeholder="请输入你的用户名" />
           </div>
         </label>
+        <label className="field"><span>管理员密码</span><input type="password" autoComplete="current-password" maxLength={72} value={password} onChange={event => setPassword(event.target.value)} placeholder="管理员必填，普通成员留空" /></label>
         <ErrorNotice text={error} />
         <button className="button primary login-submit" disabled={busy}>
           {busy ? '正在进入…' : '进入平台'}<Icon name="arrow" size={18} />
         </button>
-        <p className="login-note">无需密码。请使用团队可识别的固定用户名。<br />用户名用于协作登记，不验证真实身份。</p>
+        <p className="login-note">管理员需输入密码。普通成员使用固定用户名登记，权限由管理员开启。</p>
       </form>
       <span className="login-copyright">Hive · 团队 NPU 资源工作台</span>
     </section>

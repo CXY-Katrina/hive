@@ -9,6 +9,12 @@ class Input(BaseModel):
 
 class Login(Input):
     username: str
+    password: str = Field(default='', max_length=72)
+
+
+class MemberPermissions(Input):
+    can_request: bool
+    can_view_credentials: bool
 
 
 class NodeConnection(Input):
