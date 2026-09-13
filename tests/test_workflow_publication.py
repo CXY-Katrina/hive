@@ -57,7 +57,12 @@ class PublishedWorkflowHTTP(unittest.TestCase):
         publication = {'workflow_id': original['id'], 'item_id': 'sample-case',
                        'name': 'Executed merged sample', 'tags': {'cadence': 'nightly'}}
         self.login('admin')
-        self.assertEqual(self.client.post('/api/presets/from-workflow', json=publication).status_code, 409)
+        draft = self.client.post('/api/presets/from-workflow', json=publication)
+        self.assertEqual(draft.status_code, 201, draft.text)
+        draft = draft.json()
+        self.assertEqual(draft['validation_status'], 'pending_execution')
+        self.assertFalse(draft['enabled'])
+        self.assertEqual(self.client.post('/api/presets/' + draft['id'] + '/enable').status_code, 409)
         self.login('alice')
         completed = self.advance(original, space)
         self.assertEqual(completed['status'], 'SUCCEEDED')
@@ -71,6 +76,8 @@ class PublishedWorkflowHTTP(unittest.TestCase):
         published = self.client.post('/api/presets/from-workflow', json=publication)
         self.assertEqual(published.status_code, 201, published.text)
         parent = published.json()
+        self.assertEqual(parent['id'], draft['id'])
+        self.assertEqual(parent['sha256'], draft['sha256'])
         self.assertEqual(parent['validation_status'], 'execution_passed')
         self.assertEqual(parent['source_workflow_id'], original['id'])
         self.assertEqual(parent['workflow']['jobs'][0]['artifacts'][0]['path'], template)

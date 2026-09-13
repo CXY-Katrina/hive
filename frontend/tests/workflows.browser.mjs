@@ -452,6 +452,23 @@ test('filter externally supplied presets and keep unverified entries disabled', 
   } finally { await page.close(); }
 });
 
+test('a pending execution draft cannot be enabled or loaded but its complete configuration can be reviewed', async () => {
+  const presets = [{ id: 'pending', name: '等待实机验收', enabled: false, validation_status: 'pending_execution', reason: '来源任务仍在排队，尚未完成实机执行。', tags: { cycle: 'nightly' }, workflow: { jobs: [{ id: 'sample', environment: 'env1', steps: [{ launch: 'python3 runner.py config.yaml', files: [{ name: 'config.yaml', content: 'model: fixture-model\nbatch_size: 8' }] }] }] } }];
+  const { page, submissions } = await workspace({ presets, admin: true });
+  try {
+    await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
+    await page.getByText('选择外部预置', { exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: '使用预置 等待实机验收', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '启用预置 等待实机验收', exact: true }).isDisabled(), true);
+    await page.getByText('来源任务仍在排队，尚未完成实机执行。', { exact: true }).waitFor();
+    await page.getByText('查看任务配置', { exact: true }).click();
+    const configuration = page.getByLabel('等待实机验收 的任务配置', { exact: true });
+    assert.match(await configuration.textContent(), /python3 runner.py config.yaml/);
+    assert.match(await configuration.textContent(), /batch_size: 8/);
+    assert.equal(submissions.length, 0);
+  } finally { await page.close(); }
+});
+
 test('ordinary requests remain debug-only and changing PR while resolving cannot keep the old snapshot', async () => {
   const { page, debugRequests, submissions } = await workspace();
   let releaseSource;

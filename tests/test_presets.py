@@ -240,7 +240,65 @@ class PresetHTTPTests(unittest.TestCase):
                 c.execute('UPDATE workflows SET status=%s WHERE id=%s', ('FAILED',task_id))
             rejected = self.client.post('/api/presets/from-workflow',json={**request,'item_id':'failed-case'})
             self.assertEqual(rejected.status_code,409,rejected.text)
+            self.assertEqual(self.client.post('/api/presets/'+case['id']+'/derive', json={
+                'name':'Cannot inherit failed evidence','workflow':workflow}).status_code,409)
         finally:
             with self.db.transaction() as c:
                 c.execute('DELETE FROM workflows WHERE id=%s',(task_id,))
                 c.execute('DELETE FROM workflow_spaces WHERE id=%s',(space_id,))
+
+    def test_workflow_draft_follows_execution_without_changing_immutable_preset(self):
+        from tests.test_workflows import payload
+        from hive.domain import uid, encode, now
+        workflow = payload()
+        workflow['source'] = {'pr':123,'head_sha':HEAD,'vllm_sha':VLLM}
+        task_id, space_id, request_id = uid(), uid(), uid()
+        actor = self.identity.current(self.tokens['admin'])
+        with self.db.transaction() as c:
+            c.execute('INSERT INTO resource_requests (id,owner_user_id,owner_name,idempotency_key,body_hash,spec,status,purpose,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                      (request_id,actor.id,actor.username,'draft-request','b'*64,encode(workflow['resource']),'QUEUED','task',now()))
+            c.execute('INSERT INTO workflow_spaces (id,request_id,owner_user_id,owner_name,status,spec,runtime,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+                      (space_id,request_id,actor.id,actor.username,'QUEUED',encode(workflow),'{}',now()))
+            c.execute('INSERT INTO workflows (id,space_id,owner_user_id,owner_name,idempotency_key,body_hash,name,spec,status,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                      (task_id,space_id,actor.id,actor.username,'draft-run','a'*64,'Queued run',encode(workflow),'QUEUED',now()))
+        try:
+            request = {'workflow_id':task_id,'item_id':'sample-case','name':'Waiting sample','tags':{}}
+            response = self.client.post('/api/presets/from-workflow', json=request)
+            self.assertEqual(response.status_code, 201, response.text)
+            original = response.json()
+            self.assertFalse(original['enabled'])
+            self.assertEqual(original['validation_status'], 'pending_execution')
+            self.assertEqual(original['source_workflow_status'], 'QUEUED')
+            self.assertTrue(original['reason'])
+            for status in ('QUEUED', 'PREPARING', 'RUNNING', 'FAILED', 'CANCELLED'):
+                with self.subTest(status=status):
+                    with self.db.transaction() as c:
+                        c.execute('UPDATE workflows SET status=%s WHERE id=%s', (status,task_id))
+                    current = next(item for item in self.client.get('/api/presets').json() if item['id'] == original['id'])
+                    self.assertEqual(current['validation_status'], 'pending_execution')
+                    self.assertEqual(current['source_workflow_status'], status)
+                    self.assertFalse(current['enabled'])
+                    self.assertTrue(current['reason'])
+                    self.assertEqual(self.client.post('/api/presets/'+original['id']+'/enable').status_code,409)
+                    if status in {'QUEUED','PREPARING','RUNNING'}:
+                        saved = self.client.post('/api/presets/from-workflow', json=request)
+                        self.assertEqual(saved.status_code, 201, saved.text)
+                        self.assertEqual(saved.json()['id'], original['id'])
+            with self.db.transaction() as c:
+                c.execute('UPDATE workflows SET status=%s WHERE id=%s', ('SUCCEEDED',task_id))
+            passed = next(item for item in self.client.get('/api/presets').json() if item['id'] == original['id'])
+            self.assertEqual(passed['validation_status'], 'execution_passed')
+            self.assertFalse(passed['enabled'])
+            self.assertEqual(passed['sha256'], original['sha256'])
+            self.assertEqual(passed['workflow'], original['workflow'])
+            self.assertEqual(self.client.post('/api/presets/'+original['id']+'/enable').status_code,200)
+            with self.db.transaction() as c:
+                c.execute('DELETE FROM workflows WHERE id=%s', (task_id,))
+            missing = next(item for item in self.client.get('/api/presets').json() if item['id'] == original['id'])
+            self.assertEqual(missing['validation_status'], 'unknown')
+            self.assertFalse(missing['enabled'])
+            self.assertEqual(self.client.post('/api/presets/'+original['id']+'/enable').status_code,409)
+        finally:
+            with self.db.transaction() as c:
+                c.execute('DELETE FROM workflows WHERE id=%s', (task_id,))
+                c.execute('DELETE FROM workflow_spaces WHERE id=%s', (space_id,))

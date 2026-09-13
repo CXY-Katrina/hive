@@ -554,13 +554,13 @@ npm.cmd --prefix frontend run build
 
 ### 12.3 nightly / weekly 预置接入
 
-预置有两种来源：从 PR 中的 JSON 清单导入，或将平台上实际执行成功的任务发布为预置。清单格式为 `{"items":[{"id":"...","name":"...","tags":{},"workflow":{...}}]}`，workflow 使用[任务接口契约](docs/workflow-api.md)中的通用字段。上游已有的 nightly pytest 入口可直接调用，不要求为已有用例补写业务适配。Hive 不解析业务 YAML、不重写测试或阈值判定。
+预置有两种来源：从 PR 中的 JSON 清单导入，或将平台任务的配置保存为预置。清单格式为 `{"items":[{"id":"...","name":"...","tags":{},"workflow":{...}}]}`，workflow 使用[任务接口契约](docs/workflow-api.md)中的通用字段。上游已有的 nightly pytest 入口可直接调用，不要求为已有用例补写业务适配。Hive 不解析业务 YAML、不重写测试或阈值判定。
 
-管理员调用 `POST /api/presets/from-workflow`，提交 `{workflow_id,item_id,name,tags}`，保存成功任务的可重建配置和来源执行 ID；发布时清除本次验收的指定机器约束。发布不自动启用。用户应用已启用预置后，可修改 YAML、命令、资源参数，通过“另存新用例”保存个人变体；保留原代码提交与父预置，标记为未验证，不覆盖基线。个人变体仅本人及管理员可见。
+管理员调用 `POST /api/presets/from-workflow`，提交 `{workflow_id,item_id,name,tags}`，保存任务的可重建配置和来源执行 ID；发布时清除本次验收的指定机器约束。排队或运行中的任务只能保存为禁用的待验收草案，来源任务执行成功后才允许启用；发布不自动启用。用户应用已启用预置后，可修改 YAML、命令、资源参数，通过“另存新用例”保存个人变体；保留原代码提交与父预置，标记为未验证，不覆盖基线。个人变体仅本人及管理员可见。
 
 管理员可在机器申请的预置区导入清单并单项启用，也可通过 `POST /api/presets/import` 提交 `{source:{pr,head_sha,vllm_sha},path:"PR内清单.json"}`。所有导入项初始禁用，可筛选标签并查看来源。首批只开放一个已确认样例：将 `HIVE_WORKFLOW_SAMPLE_PRESET_ID` 配置为该清单条目的 `id`（不是数据库 UUID），重启 API 后由管理员单项调用 `POST /api/presets/{数据库UUID}/enable` 批准。默认配置为空时全部不可启用，不提供批量启用操作。
 
-指定 Qwen3 样例的上游调查记录见[任务设计](docs/task-workflows.md)。真实业务验收需要实际 PR、对应的部署/测试/校验入口、本地镜像、权重及数据集；尚未提供这些输入时，空预置列表是正常状态。其他 nightly/weekly 用例等待样例验收后再接入执行。
+指定 Qwen3 样例的固定来源、配置与实际排队状态见[样例记录](docs/nightly-qwen3.md)。新设备不迁移旧数据，预置列表初始为空；需要登记该设备的镜像、权重及数据集映射，再提交外部任务配置。其他 nightly/weekly 用例等待样例验收后再接入执行。
 
 ### 12.4 节点资源映射与动态参数
 

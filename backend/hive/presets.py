@@ -44,8 +44,7 @@ class Presets:
         self.db, self.sources = db, sources
         self.sample_item_id = sample_item_id or None
 
-    @staticmethod
-    def _decode(row):
+    def _decode(self, row):
         row = dict(row)
         for key in ('tags', 'workflow', 'source'):
             row[key] = decode(row[key], {})
@@ -53,18 +52,25 @@ class Presets:
         row['path'] = row.pop('catalog_path')
         if row['path'].startswith('@workflow/'):
             row['source_workflow_id'] = row['path'].split('/', 1)[1]
-            row['validation_status'] = 'execution_passed'
+            run = self.db.one('SELECT status FROM workflows WHERE id=%s', (row['source_workflow_id'],))
+            status = run['status'] if run else None
+            row['source_workflow_status'] = status
+            row['validation_status'] = 'execution_passed' if status == 'SUCCEEDED' else 'pending_execution' if run else 'unknown'
+            if status != 'SUCCEEDED':
+                row['enabled'] = False
+                row['reason'] = ('来源任务不存在，无法核验执行结果' if not run else
+                                 '来源任务状态为 ' + status + '，尚无执行成功证据；预置保持禁用')
         return row
 
     def from_workflow(self, actor, workflow_id, item_id, name, tags):
-        """Publish the reusable definition of an actually successful execution."""
+        """Save an immutable definition; execution evidence gates later approval."""
         from .workflow_schemas import WorkflowCreate
         Identity.require_admin(actor)
         run = self.db.one('SELECT * FROM workflows WHERE id=%s', (workflow_id,))
         if not run:
             raise DomainError('任务不存在', 404)
-        if run['status'] != 'SUCCEEDED':
-            raise DomainError('只能将执行成功的任务发布为已验证预置', 409)
+        if run['status'] not in {'QUEUED', 'PREPARING', 'RUNNING', 'SUCCEEDED'}:
+            raise DomainError('只能保存排队中、准备中、运行中或执行成功的任务配置', 409)
         spec = decode(run['spec'], {})
         config = {key: value for key, value in spec.items() if key in WorkflowCreate.model_fields
                   and key not in {'idempotency_key', 'preset_id', 'space_id'}}
@@ -94,7 +100,7 @@ class Presets:
             if saved['sha256'] != digest:
                 raise DomainError('该执行已发布；参数修改请另存新用例', 409)
             ident = saved['id']
-            self.db.audit(c,actor,'preset.publish',ident,{'workflow_id':workflow_id,'sha256':digest})
+            self.db.audit(c,actor,'preset.publish',ident,{'workflow_id':workflow_id,'sha256':digest,'source_status':run['status']})
         return self.get(ident)
 
     def list(self, actor=None):
@@ -189,9 +195,10 @@ class Presets:
             if require_enabled:
                 self.get(variant['root_id'], require_enabled=True, actor=actor)
             return self._variant(variant)
-        if require_enabled and not row['enabled']:
+        decoded = self._decode(row)
+        if require_enabled and not decoded['enabled']:
             raise DomainError('此预置尚未获得管理员的单项启用批准', 409)
-        return self._decode(row)
+        return decoded
 
     def enable(self, actor, preset_id):
         Identity.require_admin(actor)
@@ -202,6 +209,12 @@ class Presets:
             selected = next((row for row in rows if row['id'] == preset_id), None)
             if not selected:
                 raise DomainError('预置不存在', 404)
+            if selected['catalog_path'].startswith('@workflow/'):
+                source_id = selected['catalog_path'].split('/', 1)[1]
+                c.execute('SELECT status FROM workflows WHERE id=%s FOR UPDATE', (source_id,))
+                run = c.fetchone()
+                if not run or run['status'] != 'SUCCEEDED':
+                    raise DomainError('来源任务尚未执行成功，预置草案不能启用', 409)
             if not self.sample_item_id or selected['item_id'] != self.sample_item_id:
                 raise DomainError('当前仅允许配置的样例单项启用；其他预置继续保持未启用', 409)
             if any(row['enabled'] and row['id'] != preset_id for row in rows):

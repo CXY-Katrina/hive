@@ -50,7 +50,7 @@ Artifact absolute paths support only `${task_id}` and `${job_id}` placeholders, 
 
 Resource `target_node_ids:[]` optionally restricts allocation candidates to registered UUIDs. It never falls back to an unlisted node. This is useful for controlled acceptance runs; published baselines remove the constraint.
 
-`POST /presets/from-workflow {workflow_id,item_id,name,tags}` is admin-only and requires SUCCEEDED. It publishes an immutable, initially disabled baseline with source_workflow_id and validation_status=execution_passed, retaining the upstream verdict separately. Repeating the same request returns the original ID. Existing single-sample enable rules apply.
+`POST /presets/from-workflow {workflow_id,item_id,name,tags}` is admin-only. It saves an immutable, initially disabled baseline with source_workflow_id. Queued/preparing/running sources yield validation_status=pending_execution; successful sources yield execution_passed, retaining the upstream verdict separately. The source run's actual state is checked when reading and enabling the baseline; only SUCCEEDED can be enabled. Repeating the same request returns the original ID. Existing single-sample enable rules apply.
 
 `POST /presets/{parent_id}/derive {name,tags,workflow}` saves a new personal case from an enabled parent. Workflow must contain resource/environments, not an allocated space_id; PR and fixed source SHAs remain the parent's. Response includes scope=personal, parent_id, root_id and validation_status=unverified. It is editable/loadable but does not assert successful execution. GET presets includes public baselines plus the caller's variants (administrators see all). Workflow submission checks ownership and the root baseline's enablement.
 
