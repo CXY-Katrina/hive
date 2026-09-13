@@ -240,8 +240,11 @@ class PresetHTTPTests(unittest.TestCase):
                 c.execute('UPDATE workflows SET status=%s WHERE id=%s', ('FAILED',task_id))
             rejected = self.client.post('/api/presets/from-workflow',json={**request,'item_id':'failed-case'})
             self.assertEqual(rejected.status_code,409,rejected.text)
-            self.assertEqual(self.client.post('/api/presets/'+case['id']+'/derive', json={
-                'name':'Cannot inherit failed evidence','workflow':workflow}).status_code,409)
+            derived = self.client.post('/api/presets/'+case['id']+'/derive', json={
+                'name':'Editable despite failed evidence','workflow':workflow})
+            self.assertEqual(derived.status_code, 201, derived.text)
+            self.assertEqual(derived.json()['validation_status'], 'unverified')
+            self.assertTrue(derived.json()['loadable'])
         finally:
             with self.db.transaction() as c:
                 c.execute('DELETE FROM workflows WHERE id=%s',(task_id,))
@@ -275,7 +278,9 @@ class PresetHTTPTests(unittest.TestCase):
                     with self.db.transaction() as c:
                         c.execute('UPDATE workflows SET status=%s WHERE id=%s', (status,task_id))
                     current = next(item for item in self.client.get('/api/presets').json() if item['id'] == original['id'])
-                    self.assertEqual(current['validation_status'], 'pending_execution')
+                    expected = {'FAILED': 'execution_failed', 'CANCELLED': 'cancelled'}.get(status, 'pending_execution')
+                    self.assertEqual(current['validation_status'], expected)
+                    self.assertTrue(current['loadable'])
                     self.assertEqual(current['source_workflow_status'], status)
                     self.assertFalse(current['enabled'])
                     self.assertTrue(current['reason'])

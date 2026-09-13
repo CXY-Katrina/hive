@@ -1,0 +1,411 @@
+{
+  "name": "Qwen3-30B-A3B-W8A8 nightly",
+  "resource": {
+    "target_node_ids": [],
+    "generation": "A3",
+    "vendor": "ascend",
+    "device_kind": "npu",
+    "model": null,
+    "mode": "whole",
+    "machine_count": 1,
+    "cards_per_node": 16,
+    "min_memory_gib": 0.0,
+    "require_interconnect": false,
+    "queue": true,
+    "wait_minutes": 60,
+    "purpose": "task",
+    "shared_storage_id": null,
+    "note": "Original nightly Qwen3 TP1; existing-image runtime"
+  },
+  "retain_minutes": 60,
+  "environments": [
+    {
+      "alias": "server_env",
+      "role": "server",
+      "node_alias": "node0",
+      "node_aliases": [
+        "node0"
+      ],
+      "image": "hive-nightly-a3-existing",
+      "shell": "/bin/bash",
+      "python": "python3",
+      "workdir": "/home",
+      "environment": {
+        "VLLM_WORKER_MULTIPROC_METHOD": "spawn",
+        "VLLM_USE_MODELSCOPE": "True",
+        "VLLM_CI_RUNNER": "linux-aarch64-nightly-a3-4",
+        "VLLM_ENGINE_READY_TIMEOUT_S": "1800",
+        "MAX_JOBS": "16",
+        "PYTHONUNBUFFERED": "1"
+      },
+      "packages": [],
+      "bootstrap": {
+        "launch": "",
+        "files": [],
+        "type": "shell",
+        "path": "/mnt/share/c00814587/start-docker-A3.sh",
+        "args": [
+          "${image}",
+          "${container_name}"
+        ],
+        "inputs": [],
+        "uploaded_content": null,
+        "runner": null,
+        "external": true
+      },
+      "install": [
+        {
+          "launch": "cd \"${source_dir}\"\npython3 \"${source_dir}/hive_presets/qwen3-30b-a3b-w8a8/nightly_environment.py\" --source-root \"${source_dir}\" --source-commit \"${ascend_sha}\" --role server --vllm-sha \"${vllm_sha}\" --dep-dir /opt/hive-nightly-deps/server --runtime-mode image-reuse",
+          "files": [],
+          "type": "shell",
+          "path": "",
+          "args": [],
+          "inputs": [],
+          "uploaded_content": null,
+          "runner": null,
+          "external": false
+        }
+      ],
+      "verify": [
+        {
+          "launch": "test -s /opt/hive-nightly-deps/server/environment-report.json\ncat /opt/hive-nightly-deps/server/environment-report.json",
+          "files": [],
+          "type": "shell",
+          "path": "",
+          "args": [],
+          "inputs": [],
+          "uploaded_content": null,
+          "runner": null,
+          "external": false
+        }
+      ]
+    },
+    {
+      "alias": "client_env",
+      "role": "client",
+      "node_alias": "node0",
+      "node_aliases": [
+        "node0"
+      ],
+      "image": "hive-nightly-a3-existing",
+      "shell": "/bin/bash",
+      "python": "python3",
+      "workdir": "/home",
+      "environment": {
+        "VLLM_WORKER_MULTIPROC_METHOD": "spawn",
+        "VLLM_USE_MODELSCOPE": "True",
+        "VLLM_CI_RUNNER": "linux-aarch64-nightly-a3-4",
+        "VLLM_ENGINE_READY_TIMEOUT_S": "1800",
+        "MAX_JOBS": "16",
+        "PYTHONUNBUFFERED": "1"
+      },
+      "packages": [],
+      "bootstrap": {
+        "launch": "",
+        "files": [],
+        "type": "shell",
+        "path": "/mnt/share/c00814587/start-docker-A3.sh",
+        "args": [
+          "${image}",
+          "${container_name}"
+        ],
+        "inputs": [],
+        "uploaded_content": null,
+        "runner": null,
+        "external": true
+      },
+      "install": [
+        {
+          "launch": "wheelhouse=\"$(hive_resource package python-wheelhouse 2>/dev/null || true)\"\nif [ -n \"$wheelhouse\" ]; then\n  test -d \"$wheelhouse\"\n  export PIP_FIND_LINKS=\"file://$wheelhouse\" PIP_NO_INDEX=1\nfi\ncd \"${source_dir}\"\npython3 \"${source_dir}/hive_presets/qwen3-30b-a3b-w8a8/nightly_environment.py\" --source-root \"${source_dir}\" --source-commit \"${ascend_sha}\" --role client --vllm-sha \"${vllm_sha}\" --dep-dir /opt/hive-nightly-deps/client --runtime-mode image-reuse --benchmark-source \"$(hive_resource package aisbench-source)\" --install-client-dependencies",
+          "files": [],
+          "type": "shell",
+          "path": "",
+          "args": [],
+          "inputs": [],
+          "uploaded_content": null,
+          "runner": null,
+          "external": false
+        }
+      ],
+      "verify": [
+        {
+          "launch": "test -s /opt/hive-nightly-deps/client/environment-report.json\ncat /opt/hive-nightly-deps/client/environment-report.json",
+          "files": [],
+          "type": "shell",
+          "path": "",
+          "args": [],
+          "inputs": [],
+          "uploaded_content": null,
+          "runner": null,
+          "external": false
+        }
+      ]
+    }
+  ],
+  "jobs": [
+    {
+      "id": "serve",
+      "name": "启动 Qwen3 服务",
+      "environment": "server_env",
+      "node_aliases": [
+        "node0"
+      ],
+      "kind": "service",
+      "npu_count": 1,
+      "ports": [
+        18123
+      ],
+      "depends_on": [],
+      "pre": [
+        {
+          "launch": "source /opt/hive-nightly-deps/server/activate.sh\ncd \"${source_dir}\"\npython3 -c 'import socket,sys; s=socket.socket(); s.bind((sys.argv[1],int(sys.argv[2]))); s.close()' \"${host}\" \"${port}\"\npython3 \"${source_dir}/hive_presets/qwen3-30b-a3b-w8a8/nightly_cli.py\" server-command --config \"${source_dir}/tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml\" --case Qwen3-30B-A3B-W8A8-TP1 --benchmark perf --model-path \"$(hive_resource model vllm-ascend/Qwen3-30B-A3B-W8A8)\" --host \"${host}\" --port \"${port}\" --output-dir \"/var/tmp/hive-nightly/${task_id}/serve\"",
+          "files": [],
+          "type": "shell",
+          "path": "",
+          "args": [],
+          "inputs": [],
+          "uploaded_content": null,
+          "runner": null,
+          "external": false
+        }
+      ],
+      "steps": [
+        {
+          "launch": "source /opt/hive-nightly-deps/server/activate.sh\ncd \"${source_dir}\"\ncd /var/tmp\nexec bash \"/var/tmp/hive-nightly/${task_id}/serve/server.sh\"",
+          "files": [],
+          "type": "shell",
+          "path": "",
+          "args": [],
+          "inputs": [],
+          "uploaded_content": null,
+          "runner": null,
+          "external": false
+        }
+      ],
+      "post": [],
+      "ready": [
+        {
+          "launch": "curl --fail --silent --show-error --retry 300 --retry-all-errors --retry-delay 2 --retry-max-time 900 --connect-timeout 2 --max-time 5 \"${endpoint}/health\"",
+          "files": [],
+          "type": "shell",
+          "path": "",
+          "args": [],
+          "inputs": [],
+          "uploaded_content": null,
+          "runner": null,
+          "external": false
+        }
+      ],
+      "post_policy": "success",
+      "timeout_seconds": 1800,
+      "artifacts": [
+        {
+          "environment": "",
+          "targets": [
+            {
+              "environment": "server_env",
+              "node_alias": "node0"
+            }
+          ],
+          "path": "/var/tmp/hive-nightly/${task_id}/serve/server.json",
+          "label": "服务配置与来源",
+          "kind": "file"
+        },
+        {
+          "environment": "",
+          "targets": [
+            {
+              "environment": "server_env",
+              "node_alias": "node0"
+            }
+          ],
+          "path": "/opt/hive-nightly-deps/server/environment-report.json",
+          "label": "服务端实际环境",
+          "kind": "file"
+        }
+      ]
+    },
+    {
+      "id": "aisbench",
+      "name": "AISBench 性能测试",
+      "environment": "client_env",
+      "node_aliases": [
+        "node0"
+      ],
+      "kind": "batch",
+      "npu_count": 0,
+      "ports": [],
+      "depends_on": [
+        {
+          "job_id": "serve",
+          "condition": "ready"
+        }
+      ],
+      "pre": [
+        {
+          "launch": "source /opt/hive-nightly-deps/client/activate.sh\ncd \"${source_dir}\"\npython3 \"${source_dir}/hive_presets/qwen3-30b-a3b-w8a8/nightly_cli.py\" prepare --config \"${source_dir}/tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml\" --case Qwen3-30B-A3B-W8A8-TP1 --benchmark perf --benchmark-home /opt/hive-nightly-deps/client/benchmark --model-path \"$(hive_resource model vllm-ascend/Qwen3-30B-A3B-W8A8)\" --dataset-path \"$(hive_resource dataset vllm-ascend/GSM8K-in3500-bs400)\" --host \"${serve.host}\" --port \"${serve.port}\" --output-dir \"/var/tmp/hive-nightly/${task_id}/client\"",
+          "files": [],
+          "type": "shell",
+          "path": "",
+          "args": [],
+          "inputs": [],
+          "uploaded_content": null,
+          "runner": null,
+          "external": false
+        }
+      ],
+      "steps": [
+        {
+          "launch": "source /opt/hive-nightly-deps/client/activate.sh\ncd \"${source_dir}\"\ncd /var/tmp\nbash \"/var/tmp/hive-nightly/${task_id}/client/benchmark.sh\" 2>&1 | tee \"/var/tmp/hive-nightly/${task_id}/client/aisbench.log\"",
+          "files": [],
+          "type": "shell",
+          "path": "",
+          "args": [],
+          "inputs": [],
+          "uploaded_content": null,
+          "runner": null,
+          "external": false
+        }
+      ],
+      "post": [],
+      "ready": [],
+      "post_policy": "success",
+      "timeout_seconds": 900,
+      "artifacts": [
+        {
+          "environment": "",
+          "targets": [
+            {
+              "environment": "client_env",
+              "node_alias": "node0"
+            }
+          ],
+          "path": "/var/tmp/hive-nightly/${task_id}/client/benchmark.py",
+          "label": "AISBench 配置",
+          "kind": "file"
+        },
+        {
+          "environment": "",
+          "targets": [
+            {
+              "environment": "client_env",
+              "node_alias": "node0"
+            }
+          ],
+          "path": "/var/tmp/hive-nightly/${task_id}/client/manifest.json",
+          "label": "测试输入与参数来源",
+          "kind": "file"
+        },
+        {
+          "environment": "",
+          "targets": [
+            {
+              "environment": "client_env",
+              "node_alias": "node0"
+            }
+          ],
+          "path": "/opt/hive-nightly-deps/client/environment-report.json",
+          "label": "客户端实际环境",
+          "kind": "file"
+        }
+      ]
+    },
+    {
+      "id": "verify",
+      "name": "校验原 nightly 阈值",
+      "environment": "client_env",
+      "node_aliases": [
+        "node0"
+      ],
+      "kind": "batch",
+      "npu_count": 0,
+      "ports": [],
+      "depends_on": [
+        {
+          "job_id": "aisbench",
+          "condition": "succeeded"
+        }
+      ],
+      "pre": [
+        {
+          "launch": "source /opt/hive-nightly-deps/client/activate.sh\ncd \"${source_dir}\"\npython3 \"${source_dir}/hive_presets/qwen3-30b-a3b-w8a8/nightly_cli.py\" locate-results --config \"${source_dir}/tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml\" --case Qwen3-30B-A3B-W8A8-TP1 --benchmark perf --manifest \"/var/tmp/hive-nightly/${task_id}/client/manifest.json\" --log \"/var/tmp/hive-nightly/${task_id}/client/aisbench.log\" --output-dir \"/var/tmp/hive-nightly/${task_id}/verification\"",
+          "files": [],
+          "type": "shell",
+          "path": "",
+          "args": [],
+          "inputs": [],
+          "uploaded_content": null,
+          "runner": null,
+          "external": false
+        }
+      ],
+      "steps": [
+        {
+          "launch": "source /opt/hive-nightly-deps/client/activate.sh\ncd \"${source_dir}\"\nbash \"/var/tmp/hive-nightly/${task_id}/verification/verify.sh\"",
+          "files": [],
+          "type": "shell",
+          "path": "",
+          "args": [],
+          "inputs": [],
+          "uploaded_content": null,
+          "runner": null,
+          "external": false
+        }
+      ],
+      "post": [],
+      "ready": [],
+      "post_policy": "success",
+      "timeout_seconds": 600,
+      "artifacts": [
+        {
+          "environment": "",
+          "targets": [
+            {
+              "environment": "client_env",
+              "node_alias": "node0"
+            }
+          ],
+          "path": "/var/tmp/hive-nightly/${task_id}/verification/result.json",
+          "label": "AISBench 原生结果 JSON",
+          "kind": "file"
+        },
+        {
+          "environment": "",
+          "targets": [
+            {
+              "environment": "client_env",
+              "node_alias": "node0"
+            }
+          ],
+          "path": "/var/tmp/hive-nightly/${task_id}/verification/result.csv",
+          "label": "AISBench 原生结果 CSV",
+          "kind": "file"
+        },
+        {
+          "environment": "",
+          "targets": [
+            {
+              "environment": "client_env",
+              "node_alias": "node0"
+            }
+          ],
+          "path": "/var/tmp/hive-nightly/${task_id}/verification/result-location.json",
+          "label": "结果文件来源与摘要",
+          "kind": "file"
+        },
+        {
+          "environment": "",
+          "targets": [
+            {
+              "environment": "client_env",
+              "node_alias": "node0"
+            }
+          ],
+          "path": "/var/tmp/hive-nightly/${task_id}/verification/verification.json",
+          "label": "原 nightly 阈值判定",
+          "kind": "file"
+        }
+      ]
+    }
+  ]
+}

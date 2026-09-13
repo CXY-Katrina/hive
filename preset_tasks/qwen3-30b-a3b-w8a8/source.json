@@ -1,0 +1,34 @@
+{
+  "created_by": "admin",
+  "upstream_repository": "https://github.com/vllm-project/vllm-ascend",
+  "upstream_commit": "d4d2957e5208c2f464d4625c05920bd29ea233cb",
+  "nightly_yaml": "tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml",
+  "nightly_yaml_sha256": "3baaae2b6454c488cae86071d2cd8e323217e8c230026687dd00b426b8c531d3",
+  "case": "Qwen3-30B-A3B-W8A8-TP1",
+  "benchmark": "perf",
+  "aisbench_repository": "https://github.com/AISBench/benchmark",
+  "aisbench_commit": "0da56eadb2ac85c31c2540f4f5b69af3ec5717a5",
+  "helper_files": [
+    "nightly_cli.py",
+    "nightly_environment.py",
+    "aisbench_config.py"
+  ],
+  "upload_prefix": "hive_presets/qwen3-30b-a3b-w8a8/",
+  "id": "Qwen3-30B-A3B-W8A8",
+  "name": "Qwen3-30B-A3B-W8A8 nightly",
+  "vllm_commit": "a97dacb7106ee49f39f3d1fc6ae1800ff724e01d",
+  "tags": {
+    "schedule": "nightly",
+    "model": "Qwen3-30B-A3B",
+    "modelscope_model": "vllm-ascend/Qwen3-30B-A3B-W8A8",
+    "quantization": "W8A8 dynamic",
+    "test_type": "performance",
+    "dataset": "vllm-ascend/GSM8K-in3500-bs400",
+    "input_length": "3500",
+    "output_length": "1500",
+    "num_prompts": "180",
+    "batch_size": "45",
+    "tensor_parallel": "1",
+    "generation": "A3"
+  }
+}

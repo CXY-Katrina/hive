@@ -1,15 +1,15 @@
 # Qwen3-30B-A3B-W8A8 nightly 样例
 
-本样例使用用户指定的 [nightly YAML](https://github.com/vllm-project/vllm-ascend/blob/d4d2957e5208c2f464d4625c05920bd29ea233cb/tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml)，通过独立的服务启动、AISBench 和结果校验作业运行，不使用 pytest 包装入口。Hive 只负责资源申请、环境、命令、依赖、日志与产物；本仓库不复制模型测试、压测或阈值校验实现。
+本样例使用用户指定的 [nightly YAML](https://github.com/vllm-project/vllm-ascend/blob/d4d2957e5208c2f464d4625c05920bd29ea233cb/tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml)，通过独立的服务启动、AISBench 和结果校验作业运行，不使用 pytest 包装入口。Hive 核心只负责资源申请、环境、命令、依赖、日志与产物；本任务的接入脚本独立归档在 [preset_tasks/qwen3-30b-a3b-w8a8](../preset_tasks/qwen3-30b-a3b-w8a8/README.md)，不再通过修改 vllm-ascend 接入。
 
 ## 固定来源与参数
 
 | 项目 | 值 |
 |---|---|
-| 执行代码来源 | [vllm-project/vllm-ascend PR #16452](https://github.com/vllm-project/vllm-ascend/pull/16452)，`revision=head`，草稿 |
-| 外部脚本提交 | `bcf7ac2a33e4b23a6221d80f51d031fa565abc7f` |
+| 接入脚本 | Hive `preset_tasks/qwen3-30b-a3b-w8a8/`，每任务独立归档 |
+| 预置人员 | `admin` |
 | 原 YAML / 代码基线 | `d4d2957e5208c2f464d4625c05920bd29ea233cb`，PR #16043 合并提交；新增入口不修改该 YAML |
-| PR 的 vLLM 锚点 | `a97dacb7106ee49f39f3d1fc6ae1800ff724e01d`，来自 `.github/vllm-main-verified.commit`；现有镜像模式不安装此版本 |
+| 上游 commit 的 vLLM 锚点 | `a97dacb7106ee49f39f3d1fc6ae1800ff724e01d`，来自 `.github/vllm-main-verified.commit`；现有镜像模式不安装此版本 |
 | 镜像实际运行提交 | vLLM `2cf0a6915ce544dc493a0990f2ea38d81601128a` / Ascend `9e1cab90c0a8ec49369eb9aa1e8f387dbe5e4f1d` |
 | 权重 | `vllm-ascend/Qwen3-30B-A3B-W8A8`，动态 W8A8 |
 | 数据集 | `vllm-ascend/GSM8K-in3500-bs400` |
@@ -18,7 +18,7 @@
 | 上游基线 / 阈值 | `812.3394` / `0.97`，保留原 YAML，由上游断言判定 |
 | AISBench | 上游 CI 固定 tag `v3.1-20260609-master` |
 
-原 [nightly 工作流](https://github.com/vllm-project/vllm-ascend/blob/d4d2957e5208c2f464d4625c05920bd29ea233cb/.github/workflows/_e2e_nightly_single_node.yaml) 将服务启动和 AISBench 包在 pytest 中。Hive 中改为显式依赖：服务作业以前台 `vllm serve` 运行；就绪检查成功后执行原生 `ais_bench`；最后执行外部 PR 的结果校验命令。配置生成与校验复用上游逻辑，独立入口本身不启动服务或压测。Hive 根据作业依赖保留服务，并在消费者结束后清理自己启动的服务。
+原 [nightly 工作流](https://github.com/vllm-project/vllm-ascend/blob/d4d2957e5208c2f464d4625c05920bd29ea233cb/.github/workflows/_e2e_nightly_single_node.yaml) 将服务启动和 AISBench 包在 pytest 中。Hive 中改为显式依赖：服务作业以前台 `vllm serve` 运行；就绪检查成功后执行原生 `ais_bench`；最后执行本任务归档的结果校验命令。配置生成与校验复用上游逻辑，独立入口本身不启动服务或压测。Hive 根据作业依赖保留服务，并在消费者结束后清理自己启动的服务。
 
 ```mermaid
 flowchart LR
@@ -26,7 +26,7 @@ flowchart LR
     B -->|压测命令成功| V[校验原 nightly 阈值]
 ```
 
-服务端与客户端环境分别调用 PR 中的 `tools/nightly_environment.py`；后续作业加载对应 `activate.sh`。`tools/nightly_cli.py server-command` 从原 YAML 生成前台服务命令，`prepare` 生成完整 AISBench 配置。压测直接执行 `ais_bench`，保留管道退出码。`locate-results` 从本次日志确认唯一结果目录，验证其位于本任务输出目录，按原始字节归档 JSON/CSV；`verify` 使用原有阈值判断。没有调用 `RemoteOpenAIServer`、`AisbenchRunner` 或 `run_aisbench_cases`。
+服务端与客户端环境分别调用本任务归档的 `nightly_environment.py`；后续作业加载对应 `activate.sh`。`nightly_cli.py server-command` 从原 YAML 生成前台服务命令，`prepare` 生成完整 AISBench 配置。压测直接执行 `ais_bench`，保留管道退出码。`locate-results` 从本次日志确认唯一结果目录，验证其位于本任务输出目录，按原始字节归档 JSON/CSV；`verify` 使用原有阈值判断。没有调用 `RemoteOpenAIServer`、`AisbenchRunner` 或 `run_aisbench_cases`。
 
 各作业只配置动态节点地址与容器、依赖和流程时限。样例内部端口为 18123，启动前检查是否已有监听，不停止其他服务。服务最长 30 分钟，压测最长 15 分钟，结果校验最长 10 分钟；这些是本样例配置，通用新 job 默认仍为 10 分钟。服务保留至消费者结束；运行空间按本次配置再保留 60 分钟，可正常关闭归还。
 
@@ -42,9 +42,15 @@ flowchart LR
 
 容器通过节点上的 `/mnt/share/c00814587/start-docker-A3.sh` 创建。服务运行、安装、校验全部在平台新建容器中；不复用他人容器。服务端与客户端可以位于同一节点的不同容器。每个任务有独立的 AISBench 配置、工作目录和结果目录；安装环境可在来源与配置一致时复用。产物路径使用 `${task_id}`，避免同时运行的任务互相覆盖。保留服务日志、AISBench 原生结果、外部校验结果、输入来源和包版本清单。
 
-实际启动命令、上传 YAML 及机器路径存于任务数据库及管理员运行数据目录，不作为 Hive 业务代码提交。新设备部署不会自动复制节点、密码或这些环境数据；需要按 README 纳管机器并登记该设备实际映射。
+预置启动命令维护在本任务的 `workflow.json`，脚本和测试同目录归档；每次提交将配置与文件冻结到任务数据库。机器真实路径由节点映射提供，不写入公共预置。新设备部署不会自动复制节点、密码或这些环境数据；需要按 README 纳管机器并登记该设备实际映射。
 
-## 当前验收状态（2026-09-13）
+## 归档与载入（2026-09-13）
+
+当前公共列表只展示一个 Qwen3 nightly，包含三个 job。任何登录用户均可载入配置；配置详情在载入后的环境和 Jobs 编辑区展示。来源只展示 commit、YAML 路径和预置人员。资源提交权限仍独立检查，可另存私人参数副本。旧调测发布从公共列表合并，历史任务和实测结果保留。
+
+本次改为本地独立入口已通过脚本、API 和浏览器回归；没有重复 NPU 压测。下文是原外部 PR 方式的历史运行记录，不代表本地归档版本已完成新的性能验收。
+
+## 历史验收状态（2026-09-13）
 
 准备阶段的两次只读检查未发现 NPU 进程。平台回归完成后复查，198 的全部 16 张逻辑卡已被外部 `mlptp_dyb` 容器中的 vLLM worker 占用，约每卡 50 GiB 进程显存。平台正确将其判为外部占用，没有强制分配或清理这些进程。
 

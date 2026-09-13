@@ -49,6 +49,22 @@ class FakeGitHub:
 
 
 class SourceHTTPTests(unittest.TestCase):
+    def test_commit_source_resolves_without_pr_and_previews_original_yaml(self):
+        path = 'tests/e2e/nightly/case.yaml'
+        self.github.responses[f'{API}/commits/{HEAD}'] = {'sha': HEAD}
+        self.github.responses[f'{API}/contents/{path}?ref={HEAD}'] = github_file(path, 'cases: []\n')
+        response = self.client.post('/api/sources/resolve', json={'commit': HEAD})
+        self.assertEqual(response.status_code, 200, response.text)
+        source = response.json()
+        self.assertEqual(source['revision'], 'commit')
+        self.assertEqual(source['head_sha'], HEAD)
+        self.assertEqual(source['vllm_sha'], VLLM)
+        self.assertNotIn('pr', source)
+        preview = self.client.post('/api/sources/file', json={'source': source, 'path': path})
+        self.assertEqual(preview.status_code, 200, preview.text)
+        self.assertEqual(preview.json()['content'], 'cases: []\n')
+        self.assertFalse(any('/pulls/' in url for url in self.github.calls))
+
     def setUp(self):
         self.github = FakeGitHub()
         self.sources = SourceService(opener=self.github)

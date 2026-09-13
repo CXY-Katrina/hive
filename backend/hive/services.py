@@ -19,6 +19,7 @@ def build_services(settings):
     from .workflows import Workflows
     from .sources import SourceService
     from .presets import Presets
+    from .preset_archive import DEFAULT_ROOT
     from .node_mappings import NodeMappings
     db=Database(settings)
     inventory=Inventory(db,settings)
@@ -40,7 +41,7 @@ def build_services(settings):
         onboarding=Onboarding(settings),
         sources=sources,
         node_mappings=node_mappings,
-        presets=Presets(db,sources,settings.workflow_sample_preset_id),
+        presets=Presets(db,sources,settings.workflow_sample_preset_id,archive_root=DEFAULT_ROOT),
         workflows=workflows,
         compute_benchmark=ComputeBenchmark(db,settings,inventory,telemetry,benchmark_transport),
         adapters=adapters,catalog=catalog,telemetry=telemetry,resources=resources,reporting=Reporting(db,settings),

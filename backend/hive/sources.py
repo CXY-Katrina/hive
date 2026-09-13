@@ -1,4 +1,4 @@
-"""Pinned vllm-ascend PR source retrieval; GitHub HTTP is the only boundary."""
+"""Pinned vllm-ascend PR or commit retrieval; GitHub HTTP is the boundary."""
 import base64
 import hashlib
 import json
@@ -19,12 +19,13 @@ MAX_RESPONSE = 2 * 1024 * 1024
 
 def validate_file_request(source, path):
     if (not isinstance(source, dict) or source.get('repository') != REPOSITORY
-            or type(source.get('pr')) is not int or not 1 <= source['pr'] <= 2_147_483_647
+            or not (source.get('revision') == 'commit' and source.get('commit') == source.get('head_sha')
+                    or type(source.get('pr')) is int and 1 <= source['pr'] <= 2_147_483_647)
             or source.get('commit_file') != COMMIT_FILE
             or any(not isinstance(source.get(key), str) or not re.fullmatch(pattern, source[key])
                    for key, pattern in (('head_sha', r'[0-9a-f]{40}'), ('vllm_sha', r'[0-9a-f]{40}'),
                                         ('commit_file_sha256', r'[0-9a-f]{64}')))):
-        raise DomainError('来源必须是已解析的 vllm-ascend PR 和完整提交 SHA', 422)
+        raise DomainError('来源必须是已解析的 vllm-ascend 完整提交 SHA', 422)
     if (not isinstance(path, str) or len(path) > 512
             or not re.fullmatch(r'[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*', path)
             or any(part in {'.', '..'} for part in path.split('/'))
@@ -78,6 +79,28 @@ class SourceService:
         return {'repository': REPOSITORY, 'head_sha': head_sha, 'path': path,
                 'content': content, 'sha256': hashlib.sha256(raw).hexdigest(),
                 'git_blob_sha': value['sha'], 'size': len(raw)}
+
+    def resolve_spec(self, source):
+        if source.get('revision') == 'commit' or source.get('commit'):
+            if source.get('pr') is not None:
+                raise DomainError('PR 与 commit 来源只能选择一种', 422)
+            return self.resolve_commit(source.get('commit') or source.get('head_sha'))
+        return self.resolve(source.get('pr'), revision=source.get('revision', 'head'))
+
+    def resolve_commit(self, commit):
+        if not isinstance(commit, str) or not re.fullmatch(r'[0-9a-f]{40}', commit):
+            raise DomainError('请输入 vllm-ascend 完整的 40 位 commit SHA', 422)
+        value = self._json(f'{API}/commits/{commit}')
+        if value.get('sha') != commit:
+            raise DomainError('GitHub commit 与请求的固定 SHA 不匹配', 502)
+        anchor = self._content(commit, COMMIT_FILE)
+        vllm_sha = anchor['content'].strip()
+        if not re.fullmatch(r'[0-9a-f]{40}', vllm_sha):
+            raise DomainError('vLLM commit 文件必须包含唯一的完整提交 SHA', 422)
+        return {'revision': 'commit', 'commit': commit, 'repository': REPOSITORY,
+                'head_sha': commit, 'vllm_sha': vllm_sha, 'commit_file': COMMIT_FILE,
+                'commit_file_sha256': anchor['sha256'], 'resolved_at': str(now()),
+                'url': f'https://github.com/{REPOSITORY}/commit/{commit}'}
 
     def resolve(self, pr, revision='head'):
         if isinstance(pr, str):

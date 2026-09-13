@@ -1,4 +1,4 @@
-"""Administratively imported, immutable JSON workflow catalogs."""
+"""Local task archives, historical publications and private parameter variants."""
 import json
 import hashlib
 import re
@@ -40,9 +40,11 @@ def catalog_items(content):
 
 
 class Presets:
-    def __init__(self, db, sources, sample_item_id=None):
+    def __init__(self, db, sources, sample_item_id=None, archive_root=None):
         self.db, self.sources = db, sources
         self.sample_item_id = sample_item_id or None
+        from .preset_archive import PresetArchive
+        self.archive = PresetArchive(archive_root) if archive_root is not None else None
 
     def _decode(self, row):
         row = dict(row)
@@ -50,16 +52,20 @@ class Presets:
             row[key] = decode(row[key], {})
         row['enabled'] = bool(row['enabled'])
         row['path'] = row.pop('catalog_path')
+        row['created_by'] = row['imported_by']
+        row['loadable'] = bool(row['workflow'])
+        row['yaml_path'] = row['tags'].get('nightly_yaml', '')
         if row['path'].startswith('@workflow/'):
             row['source_workflow_id'] = row['path'].split('/', 1)[1]
             run = self.db.one('SELECT status FROM workflows WHERE id=%s', (row['source_workflow_id'],))
             status = run['status'] if run else None
             row['source_workflow_status'] = status
-            row['validation_status'] = 'execution_passed' if status == 'SUCCEEDED' else 'pending_execution' if run else 'unknown'
+            row['validation_status'] = ({'SUCCEEDED': 'execution_passed', 'FAILED': 'execution_failed',
+                                         'CANCELLED': 'cancelled'}.get(status, 'pending_execution') if run else 'unknown')
             if status != 'SUCCEEDED':
                 row['enabled'] = False
                 row['reason'] = ('来源任务不存在，无法核验执行结果' if not run else
-                                 '来源任务状态为 ' + status + '，尚无执行成功证据；预置保持禁用')
+                                 '来源任务状态为 ' + status + '；可载入修改，不代表执行验证通过')
         return row
 
     def from_workflow(self, actor, workflow_id, item_id, name, tags):
@@ -105,24 +111,59 @@ class Presets:
 
     def list(self, actor=None):
         rows = [self._decode(row) for row in self.db.all('SELECT * FROM workflow_presets ORDER BY name,id')]
+        archived = self.archive.list() if self.archive else []
+        archived_items = {row['item_id'] for row in archived}
+        archived_yaml = {row['yaml_path'] for row in archived}
+        # Old publications remain addressable for historical tasks and personal variants.
+        rows = [row for row in rows if row['item_id'] not in archived_items
+                and (not row['yaml_path'] or row['yaml_path'] not in archived_yaml)]
+        latest = {}
+        for row in rows:
+            key = row['yaml_path'] or (row['item_id'] if row['path'].startswith('@workflow/') else row['id'])
+            if key not in latest or row['imported_at'] > latest[key]['imported_at']:
+                latest[key] = row
+        rows = archived + list(latest.values())
         if actor:
             rows.extend(self._variant(row) for row in self.db.all(
                 'SELECT * FROM workflow_preset_variants WHERE owner_user_id=%s OR %s ORDER BY created_at,id', (actor.id, actor.admin)))
         return rows
 
-    @staticmethod
-    def _variant(row):
+    def _variant(self, row):
         value = dict(row)
         for key in ('workflow', 'source', 'tags'):
             value[key] = decode(value[key], {})
-        value.update(scope='personal', validation_status='unverified', enabled=True,
+        value.update(scope='personal', validation_status='unverified', enabled=True, loadable=True, created_by=value['owner_name'],
                      reason='参数变体尚未执行验证', imported_by=value['owner_name'], imported_at=value['created_at'])
+        if self.archive:
+            parent = self.archive.get(value['root_id'])
+            if parent:
+                value['yaml_path'] = parent['yaml_path']
+            def refresh(node):
+                if isinstance(node, list):
+                    for child in node:
+                        refresh(child)
+                elif isinstance(node, dict):
+                    for file in node.get('files', []):
+                        current = self.archive.file(file['name'])
+                        if current and current['content'] != file['content']:
+                            file['content'] = current['content']
+                            value['archive_refreshed'] = True
+                    for key, child in node.items():
+                        if key != 'files':
+                            refresh(child)
+            try:
+                refresh(value['workflow'])
+            except DomainError:
+                value.update(loadable=False, reason='此副本引用的归档脚本已移除，请从当前公共预置重新创建副本')
+            if value.get('archive_refreshed'):
+                value['reason'] = '已载入当前归档脚本，保留个人参数；需要重新执行验证'
+                value['loaded_sha256'] = hashlib.sha256(encode(value['workflow']).encode()).hexdigest()
         return value
 
     def derive(self, actor, preset_id, name, tags, workflow):
         from .workflow_schemas import WorkflowCreate
         from pydantic import ValidationError
-        parent = self.get(preset_id, require_enabled=True, actor=actor)
+        parent = self.get(preset_id, actor=actor)
         name = name.strip()
         if not name or len(name) > 128 or len(tags) > 32 or any(not isinstance(k,str) or not 1 <= len(k) <= 64 or not isinstance(v,str) or len(v)>256 for k,v in tags.items()):
             raise DomainError('用例名称或标签无效', 422)
@@ -135,7 +176,7 @@ class Presets:
         if parsed.space_id:
             raise DomainError('新用例需保存机器规格，不绑定已分配运行空间', 422)
         if any(str(parsed.source.get(k)) != str(parent['source'].get(k)) for k in ('pr','head_sha','vllm_sha')):
-            raise DomainError('参数变体需保留原预置的 PR 和代码版本', 422)
+            raise DomainError('参数变体需保留原预置的代码版本', 422)
         config = parsed.model_dump(exclude={'idempotency_key','preset_id','space_id'})
         config['source'] = parent['source']
         ident, stamp = uid(), now()
@@ -185,6 +226,9 @@ class Presets:
         return [row for row in self.list() if row['id'] in ids]
 
     def get(self, preset_id, require_enabled=False, actor=None):
+        archived = self.archive.get(preset_id) if self.archive else None
+        if archived:
+            return archived
         row = self.db.one('SELECT * FROM workflow_presets WHERE id=%s', (preset_id,))
         if not row:
             variant = self.db.one('SELECT * FROM workflow_preset_variants WHERE id=%s', (preset_id,))

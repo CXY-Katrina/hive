@@ -165,10 +165,13 @@ Copy-Item .env.example .env
 New-Item -ItemType Directory -Path data -Force | Out-Null
 if (!(Test-Path data\known_hosts)) { New-Item -ItemType File -Path data\known_hosts | Out-Null }
 .\.venv\Scripts\python.exe -m hive.cli keygen
+.\.venv\Scripts\python.exe -m hive.cli admin-password
 notepad .env
 ```
 
 将 `keygen` 输出的整行填入 `HIVE_SECRET_KEY`。这是加密节点凭据的主密钥，生成一次并独立保存；实例投入使用后不要随意重新生成，否则已有凭据无法解密。`.env` 和 `data/` 已被 Git 忽略。
+
+`admin-password` 会交互读取管理员密码，输出 `HIVE_ADMIN_PASSWORD_HASH=...`；将这一整行复制到启动 API 时 `--env-file` 指定的配置文件。默认使用 `.env`，开发启动脚本 `scripts/start-api.ps1` 默认使用 `data/preview.env`，请填写实际使用的文件。哈希按字面保存，无需执行输出内容，也不要把明文密码写入配置。
 
 配置示例，所有中文占位值都需要替换：
 
@@ -210,6 +213,8 @@ HIVE_DATA_DIR=data
 配置按字面读取，不执行 shell 插值；进程环境变量优先于配置文件。相对路径按**工作目录**解析，本文固定为 `C:\hive`，也可填写绝对路径。修改配置后重启 API 和 worker。务必确认 `--env-file` 指定文件存在，否则程序可能使用默认值。
 
 管理员必须使用密码登录，未配置密码哈希时拒绝管理员登录。升级后原有的免密管理员会话失效，需重新登录。普通成员仍使用固定用户名登记；首次登录后默认只能查看信息，由管理员在“人员管理”中分别开启服务器申请和查看服务器密码权限。后端实时检查权限，已有申请不会自动授予密码查看权限；撤销申请权限后仍可归还已有资源。
+
+如果管理员登录提示“管理员密码尚未配置”，用上面的 `admin-password` 命令生成哈希并写入实际启动配置，再重启 API。更换密码也采用这一流程；配置在启动时加载，仅修改文件不会改变已运行的服务。若启动环境中设置了同名 `HIVE_ADMIN_PASSWORD_HASH`，需要同步更新或移除该环境变量，因为它优先于文件内容。
 
 人员管理可删除普通成员，删除会使其全部会话失效并禁止该用户名重新登录，同时保留历史申请和审计记录。有未结束的申请或任务时须先结束；不能删除管理员。普通成员用户名登记不验证真实身份，适用于受控团队网络。
 
@@ -503,17 +508,17 @@ Set-Location ..
 
 进一步阅读：[设计与申请释放规则](docs/design.md)、[实现范围](docs/implementation.md)、[SoC/算力来源](docs/hardware-profile.md)、[实机验收记录](docs/real-node-acceptance.md)、[互联与容器查询依据](docs/research/node-connectivity-and-containers.md)。历史 Slurm 研究只作背景材料，当前平台不依赖 Slurm。
 
-## 12. PR 任务编排与容器执行
+## 12. 任务编排与容器执行
 
-“机器申请”从上到下展示机器资源、任务环境、任务 Jobs；多个环境和多个 job 分别使用 Tab。任务名默认为创建时间，可以修改。使用 vllm-project/vllm-ascend PR；提交时读取固定提交中的 `.github/vllm-main-verified.commit`，冻结对应的 vLLM SHA、执行文件和输入摘要。普通 PR 使用 head；nightly 基线可以使用已合并 PR 的 merge 提交，记录 `revision=merged`。PR 更新后需要重新解析再提交，已提交任务不随 PR 自动变化。
+“机器申请”从上到下展示机器资源、任务环境、任务 Jobs；多个环境和多个 job 分别使用 Tab。任务名默认为创建时间，可以修改。代码来源支持 vllm-project/vllm-ascend PR 或完整 commit；预置只需记录 commit 和 nightly YAML 路径。提交时读取固定提交中的 `.github/vllm-main-verified.commit`，冻结对应的 vLLM SHA、执行文件和输入摘要。普通 PR 使用 head；nightly 基线可以使用已合并 PR 的 merge 提交，记录 `revision=merged`。PR 更新后需要重新解析再提交，已提交任务不随 PR 自动变化。
 
 当前浏览器按用户名自动保存完整申请草稿到 IndexedDB，包括上传的文本文件；切换页面、刷新后可继续编辑。草稿仅存在当前浏览器，不跨设备同步。成功提交后清除草稿；空间引用在提交时仍由服务端校验。无需增加数据库或前端依赖。
 
-每个任务包含多个 job，依赖只通过作业图连线设置，连线旁提供删除按钮。图中显示已添加的前处理和后处理；点击 + 才展开相应文件与启动命令。每个 job 默认超时 **10 分钟**，可修改。文件直接多选上传，支持 Shell、Python、YAML；另有“启动命令”用于调用脚本。上传 Shell/Python 需与固定 PR 中的文件一致；相同文件名在 PR 中重名时，可以将上传名称补成 PR 相对路径。YAML 可覆盖配置内容，由启动命令指定外部 runner；Hive 不解释业务 YAML。未填写启动命令时按上传顺序运行 Shell/Python 文件。
+每个任务包含多个 job，依赖只通过作业图连线设置，连线旁提供删除按钮。图中显示已添加的前处理和后处理；点击 + 才展开相应文件与启动命令。每个 job 默认超时 **10 分钟**，可修改。文件直接多选上传，支持 Shell、Python、YAML；另有“启动命令”用于调用脚本。预置接入脚本独立维护在 `preset_tasks/<任务目录>/`，载入时携带脚本内容，提交时与归档逐字节核对。其他上传 Shell/Python 需与固定上游提交中的文件一致；相同文件名在 PR 中重名时，可以将上传名称补成 PR 相对路径。YAML 可覆盖配置内容，由启动命令指定外部 runner；Hive 不解释业务 YAML。未填写启动命令时按上传顺序运行 Shell/Python 文件。
 
 每个环境配置容器代称、镜像和一个或多个节点代称，不需要选择服务端/客户端角色。同一环境选 node0、node1 时分别创建独立容器；两个环境都选 node0 时在同一机器创建两个容器。安装/核验通过上传文件与启动命令完成。job 默认在其环境的所有节点分别执行，也可选择其中部分节点；纯请求客户端可以选 0 张 NPU。服务 job 需提供就绪检查，依赖等待所有上游实例 ready，普通 job 等待所有上游实例 succeeded。无依赖且卡不冲突的 job 可以并行，同一宿主机最多 4 个运行 job。端口和普通环境变量由脚本自行配置。现有启动脚本映射所有卡，实际使用范围仍依赖团队遵守分配规则。
 
-安装环境可由多个任务复用。同一运行空间继续持有原资源申请，后续任务可选择该空间。当前复用要求 PR/vLLM SHA 和安装配置相同，支持替换测试 YAML；改变安装代码或依赖时新建空间。默认所有任务结束后关闭环境并归还资源；勾选保留后按页面时长保留，并可主动关闭。取消单个任务不会关闭其他任务使用的环境，关闭空间会取消其中未结束任务。关闭结果不明确时继续保留资源并显示原因。
+安装环境可由多个任务复用。同一运行空间继续持有原资源申请，后续任务可选择该空间。当前复用要求 Ascend/vLLM SHA 和安装配置相同，支持替换测试 YAML；改变安装代码或依赖时新建空间。默认所有任务结束后关闭环境并归还资源；勾选保留后按页面时长保留，并可主动关闭。取消单个任务不会关闭其他任务使用的环境，关闭空间会取消其中未结束任务。关闭结果不明确时继续保留资源并显示原因。
 
 ### 12.1 部署与依赖
 
@@ -554,13 +559,17 @@ npm.cmd --prefix frontend run build
 
 ### 12.3 nightly / weekly 预置接入
 
-预置有两种来源：从 PR 中的 JSON 清单导入，或将平台任务的配置保存为预置。清单格式为 `{"items":[{"id":"...","name":"...","tags":{},"workflow":{...}}]}`，workflow 使用[任务接口契约](docs/workflow-api.md)中的通用字段。Qwen3 样例采用显式服务启动、就绪检查、AISBench 原生命令和独立结果校验，不通过 pytest 包装运行。业务 YAML、环境脚本、配置生成和阈值校验来自外部 PR；Hive 只负责通用编排与执行。
+预置接入脚本由 **Hive 的 `preset_tasks/` 目录维护**，每个 nightly YAML 对应一个目录和一个公共预置。当前只接入 [Qwen3-30B-A3B-W8A8](preset_tasks/qwen3-30b-a3b-w8a8/README.md)，内部包含服务启动、AISBench、结果校验三个 job，不会因此生成三个预置。不再要求向 vllm-ascend 提交接入脚本 PR。
 
-管理员调用 `POST /api/presets/from-workflow`，提交 `{workflow_id,item_id,name,tags}`，保存任务的可重建配置和来源执行 ID；发布时清除本次验收的指定机器约束。排队或运行中的任务只能保存为禁用的待验收草案，来源任务执行成功后才允许启用；发布不自动启用。用户应用已启用预置后，可修改 YAML、命令、资源参数，通过“另存新用例”保存个人变体；保留原代码提交与父预置，标记为未验证，不覆盖基线。个人变体仅本人及管理员可见。
+每个目录包含 `source.json`（上游完整 commit、nightly YAML 路径、预置人员及脚本清单）、`workflow.json`（资源、环境及 job 定义）、独立 Shell/Python/YAML 接入文件与测试。API 从当前仓库读取目录；无需导入历史数据库，新设备部署也能看到这一个预置。提交时冻结脚本内容和 SHA-256，不覆盖上游文件，已提交任务不随归档更新变化。维护文件后重新载入配置，修改 Hive 代码走 Hive 仓库提交。
 
-管理员可在机器申请的预置区导入清单并单项启用，也可通过 `POST /api/presets/import` 提交 `{source:{pr,head_sha,vllm_sha},path:"PR内清单.json"}`。所有导入项初始禁用，可筛选标签并查看来源。首批只开放一个已确认样例：将 `HIVE_WORKFLOW_SAMPLE_PRESET_ID` 配置为该清单条目的 `id`（不是数据库 UUID），重启 API 后由管理员单项调用 `POST /api/presets/{数据库UUID}/enable` 批准。默认配置为空时全部不可启用，不提供批量启用操作。
+任何已登录用户都能载入预置并在任务编辑器查看、修改环境和 job；预置卡不再展示任务配置 JSON。来源展示仅有 vllm-ascend commit、nightly YAML 路径和预置人员（本样例为 `admin`）。载入与性能验收结果分开，**可载入不代表测试通过**；实际提交仍要求管理员授予资源申请权限。可通过“另存新用例”保存私人参数副本，保留原代码版本与父预置，本人及管理员可见。
 
-指定 Qwen3 样例已改用 159 的现有镜像进行验收，固定来源、配置与实际状态见[样例记录](docs/nightly-qwen3.md)。外部环境脚本支持保留镜像已有运行版本，并在报告中与 PR 脚本来源分别记录；客户端可用独立 venv 继承大包，只补缺失依赖。新设备不迁移旧数据，预置列表初始为空；需要登记该设备的镜像、权重及数据集映射，再提交外部任务配置。其他 nightly/weekly 用例等待样例验收后再接入执行。
+相同 nightly 的历史调测发布不会重复出现在公共列表；历史任务、日志、结果和冻结配置保留。旧 PR JSON 清单导入接口继续兼容，但不再作为本样例的维护方式；旧数据库条目的执行批准规则保留，本地归档样例可直接载入提交。其余 nightly/weekly 暂不批量接入。
+
+该样例需在目标节点登记镜像别名 `hive-nightly-a3-existing`、ModelScope 权重和数据集映射，以及 `package` 类的 `aisbench-source`（包含固定 AISBench Git 对象的目录）。可选 `python-wheelhouse` 映射指向已核验的完整离线包目录；存在时客户端使用 `PIP_NO_INDEX=1`，否则使用正常包索引。中心机需要访问 GitHub 来核验来源，节点需能获取固定上游提交；镜像、目录挂载及容器工具要求见目录 README。没有新增中心机依赖服务。
+
+159 上的历史实测与原始性能判定见[样例记录](docs/nightly-qwen3.md)：180/180 请求成功，但吞吐低于原 nightly 阈值。此记录不会被本次脚本归档标记为通过；新部署不迁移这些运行数据。
 
 ### 12.4 节点资源映射与动态参数
 
@@ -579,7 +588,7 @@ npm.cmd --prefix frontend run build
 
 平台预置 `HIVE_NODE0_IP`、`HIVE_NODE1_IP` 等所有分配节点的实际 IP；`HIVE_HOST_IP` / `${host}` 始终是当前实例所在服务器，`HIVE_CONTAINER_NAME` / `${container_name}` 是当前真实容器名。启动命令可用 `${node0.ip}`、`${node1.ip}` 访问任意已申请节点。Python 可读取 `HIVE_NODES_JSON` 获取全部节点上下文。多节点服务使用 `${服务jobID.node0.endpoint}` 指定目标实例；同节点的简写 `${服务jobID.endpoint}` 指向本节点实例，无同节点且存在多个实例时必须写明节点。普通 Bash 变量及端口由用户脚本管理。
 
-Bash 入口可用 `hive_resource model 组织/权重名`、`hive_resource dataset 组织/数据集名`、`hive_resource package 包别名` 查询本环境冻结的实际路径；不存在的映射返回非零退出码。Python 入口读取 `os.environ["HIVE_RESOURCE_MAP_JSON"]`，JSON 结构为 `{"model":{},"dataset":{},"image":{},"package":{}}`，每类按逻辑名称索引。平台只提供通用路径解析，模型及测试逻辑仍维护在外部 PR。
+Bash 入口可用 `hive_resource model 组织/权重名`、`hive_resource dataset 组织/数据集名`、`hive_resource package 包别名` 查询本环境冻结的实际路径；不存在的映射返回非零退出码。Python 入口读取 `os.environ["HIVE_RESOURCE_MAP_JSON"]`，JSON 结构为 `{"model":{},"dataset":{},"image":{},"package":{}}`，每类按逻辑名称索引。平台只提供通用路径解析，各预置的接入及校验脚本维护在独立任务目录，上游 YAML 按固定 commit 读取。
 
 查询接口为 `GET /api/nodes/{id}/mappings`；管理员替换为 `PUT` 同路径，参数 `{version,entries:[{kind,name,target}]}`，传空 entries 可清空。
 

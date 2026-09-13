@@ -104,9 +104,9 @@ test('one environment can cover multiple nodes and artifacts select exact contai
   try {
     await page.getByRole('spinbutton', { name: '机器数量', exact: true }).fill('2');
     await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
-    await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
+    await page.getByRole('textbox', { name: 'vLLM-Ascend PR / commit', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
-    await page.getByText(source.head_sha, { exact: true }).waitFor();
+    await page.locator('.source-snapshot').getByText(source.head_sha, { exact: true }).waitFor();
     await page.getByRole('group', { name: 'env1 · 服务器', exact: true }).getByRole('button', { name: 'node1', exact: true }).click();
     assert.equal(await page.getByRole('group', { name: 'env1 · 服务器', exact: true }).getByRole('button', { name: 'node0', exact: true }).getAttribute('aria-pressed'), 'true');
     await page.getByRole('tab', { name: 'env1', exact: true }).click();
@@ -135,9 +135,9 @@ test('draft survives navigation and reload with uploads and selections while rem
     await page.getByRole('spinbutton', { name: '机器数量', exact: true }).fill('2');
     await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
     await page.getByRole('textbox', { name: '任务名称', exact: true }).fill('Alice 草稿');
-    await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
+    await page.getByRole('textbox', { name: 'vLLM-Ascend PR / commit', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
-    await page.getByText(source.head_sha, { exact: true }).waitFor();
+    await page.locator('.source-snapshot').getByText(source.head_sha, { exact: true }).waitFor();
     await page.getByRole('tab', { name: 'env2', exact: true }).click();
     await page.getByRole('tab', { name: 'env2', exact: true }).click();
     await page.getByRole('textbox', { name: 'env2 · 镜像', exact: true }).fill('fixture/persisted:1');
@@ -176,9 +176,9 @@ test('a member saves edited preset parameters as a separate unverified case with
   });
   try {
     await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
-    await page.getByText('选择外部预置', { exact: true }).click();
+    await page.getByText('选择预置任务', { exact: true }).click();
     await page.getByRole('button', { name: '使用预置 原始用例', exact: true }).click();
-    await page.getByText(source.head_sha, { exact: true }).waitFor();
+    await page.locator('.source-snapshot').getByText(source.head_sha, { exact: true }).waitFor();
     await page.getByRole('tab', { name: 'env1', exact: true }).click();
     await page.getByRole('textbox', { name: 'env1 · 镜像', exact: true }).fill('fixture/base:1');
     await page.getByRole('tab', { name: 'env2', exact: true }).click();
@@ -208,7 +208,7 @@ test('saving a preset from a retained space creates a rebuildable template inste
   await page.route('**/api/presets/base/derive', route => { const body = route.request().postDataJSON(); derives.push(body); return route.fulfill({ status: 201, json: { id: 'copy', name: body.name } }); });
   try {
     await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
-    await page.getByText('选择外部预置', { exact: true }).click();
+    await page.getByText('选择预置任务', { exact: true }).click();
     await page.getByRole('button', { name: '使用预置 可复用基准', exact: true }).click();
     await page.getByRole('button', { name: '复用已有环境', exact: true }).click();
     await page.getByRole('group', { name: '运行空间', exact: true }).getByRole('button', { name: '#retained · READY', exact: true }).click();
@@ -228,9 +228,9 @@ test('submitting from Jobs returns to the incomplete environment instead of sile
   try {
     await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
     await page.getByRole('textbox', { name: '任务名称', exact: true }).fill('环境待补充');
-    await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
+    await page.getByRole('textbox', { name: 'vLLM-Ascend PR / commit', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
-    await page.getByText(source.head_sha, { exact: true }).waitFor();
+    await page.locator('.source-snapshot').getByText(source.head_sha, { exact: true }).waitFor();
     await page.getByRole('tablist', { name: '作业列表', exact: true }).getByRole('tab').first().click();
     await page.getByRole('textbox', { name: 'job1 主执行 1 · 启动命令', exact: true }).fill('bash run.sh');
     await page.getByRole('button', { name: /提交任务申请/ }).click();
@@ -285,9 +285,9 @@ test('create a compact task with environment and Jobs tabs, launch commands, and
   try {
     await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
     await page.getByRole('textbox', { name: '任务名称', exact: true }).fill('并排环境验证');
-    await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
+    await page.getByRole('textbox', { name: 'vLLM-Ascend PR / commit', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
-    await page.getByText(source.head_sha, { exact: true }).waitFor();
+    await page.locator('.source-snapshot').getByText(source.head_sha, { exact: true }).waitFor();
     await page.getByRole('tablist', { name: '环境列表', exact: true }).getByRole('tab').first().click();
     await page.getByRole('tab', { name: 'env1', exact: true }).click();
     await page.getByRole('textbox', { name: 'env1 · 镜像', exact: true }).fill('fixture/server:1');
@@ -326,9 +326,9 @@ test('upload multiple files and edit only a launch command, including optional c
   try {
     await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
     await page.getByRole('textbox', { name: '任务名称', exact: true }).fill('文件入口验证');
-    await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
+    await page.getByRole('textbox', { name: 'vLLM-Ascend PR / commit', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
-    await page.getByText(source.head_sha, { exact: true }).waitFor();
+    await page.locator('.source-snapshot').getByText(source.head_sha, { exact: true }).waitFor();
     await page.getByRole('tab', { name: 'env1', exact: true }).click();
     await page.getByRole('textbox', { name: 'env1 · 镜像', exact: true }).fill('fixture/server:1');
     await page.getByRole('tab', { name: 'env2', exact: true }).click();
@@ -356,9 +356,9 @@ test('connect service readiness to a zero-NPU client and reject a dependency cyc
   try {
     await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
     await page.getByRole('textbox', { name: '任务名称', exact: true }).fill('依赖编排验证');
-    await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
+    await page.getByRole('textbox', { name: 'vLLM-Ascend PR / commit', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
-    await page.getByText(source.head_sha, { exact: true }).waitFor();
+    await page.locator('.source-snapshot').getByText(source.head_sha, { exact: true }).waitFor();
     await page.getByRole('tab', { name: 'env1', exact: true }).click();
     await page.getByRole('textbox', { name: 'env1 · 镜像', exact: true }).fill('fixture/server:1');
     await page.getByRole('tab', { name: 'env2', exact: true }).click();
@@ -399,9 +399,9 @@ test('reuse a retained space, inspect per-stage logs, and request task cancellat
     await page.getByRole('button', { name: /确认取消任务/ }).click();
     await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
     await page.getByRole('textbox', { name: '任务名称', exact: true }).fill('复用环境任务');
-    await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
+    await page.getByRole('textbox', { name: 'vLLM-Ascend PR / commit', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
-    await page.getByText(source.head_sha, { exact: true }).first().waitFor();
+    await page.locator('.source-snapshot').getByText(source.head_sha, { exact: true }).first().waitFor();
     await page.getByRole('button', { name: '复用已有环境', exact: true }).click();
     await page.getByRole('group', { name: '运行空间', exact: true }).getByRole('button', { name: '#s1 · READY', exact: true }).click();
     await page.getByRole('tablist', { name: '作业列表', exact: true }).getByRole('tab').first().click();
@@ -417,7 +417,7 @@ test('reuse a retained space, inspect per-stage logs, and request task cancellat
   } finally { await page.close(); }
 });
 
-test('filter externally supplied presets and keep unverified entries disabled', async () => {
+test('filter externally supplied presets and disable entries without configuration', async () => {
   const presets = [
     { id: 'first', name: '已验收样例', enabled: true, tags: { cycle: 'nightly', kind: 'performance', model: 'fixture-model' }, workflow: { name: '预置任务', resource: { generation: 'A3', machine_count: 1, min_memory_gib: 64 }, jobs: [{ id: 'job1', name: '外部样例', environment: 'env1', kind: 'batch', npu_count: 1, ports: [], depends_on: [], pre: [], steps: [{ type: 'python', path: 'ci/sample.py', args: [] }], post: [], post_policy: 'success', ready: [], timeout_seconds: 60 }] } },
     { id: 'other', name: '等待验收条目', enabled: false, reason: '尚未验收，未开放执行', tags: { cycle: 'weekly', kind: 'accuracy' } },
@@ -425,7 +425,7 @@ test('filter externally supplied presets and keep unverified entries disabled', 
   const { page, submissions } = await workspace({ presets });
   try {
     await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
-    await page.getByText('选择外部预置', { exact: true }).click();
+    await page.getByText('选择预置任务', { exact: true }).click();
     await page.getByRole('button', { name: 'weekly', exact: true }).click();
     assert.equal(await page.getByRole('button', { name: '使用预置 等待验收条目', exact: true }).isDisabled(), true);
     assert.equal(await page.getByRole('button', { name: '使用预置 已验收样例', exact: true }).count(), 0);
@@ -434,9 +434,9 @@ test('filter externally supplied presets and keep unverified entries disabled', 
     await page.getByRole('button', { name: '使用预置 已验收样例', exact: true }).click();
     await page.getByRole('tablist', { name: '作业列表', exact: true }).getByRole('tab').first().click();
     assert.equal(await page.getByRole('textbox', { name: 'job1 主执行 1 · 启动命令', exact: true }).inputValue(), 'python3 ci/sample.py');
-    await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
+    await page.getByRole('textbox', { name: 'vLLM-Ascend PR / commit', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
-    await page.getByText(source.head_sha, { exact: true }).waitFor();
+    await page.locator('.source-snapshot').getByText(source.head_sha, { exact: true }).waitFor();
     await page.getByRole('tablist', { name: '环境列表', exact: true }).getByRole('tab').first().click();
     await page.getByRole('tab', { name: 'env1', exact: true }).click();
     await page.getByRole('textbox', { name: 'env1 · 镜像', exact: true }).fill('fixture/server:1');
@@ -452,20 +452,49 @@ test('filter externally supplied presets and keep unverified entries disabled', 
   } finally { await page.close(); }
 });
 
-test('a pending execution draft cannot be enabled or loaded but its complete configuration can be reviewed', async () => {
-  const presets = [{ id: 'pending', name: '等待实机验收', enabled: false, validation_status: 'pending_execution', reason: '来源任务仍在排队，尚未完成实机执行。', tags: { cycle: 'nightly' }, workflow: { jobs: [{ id: 'sample', environment: 'env1', steps: [{ launch: 'python3 runner.py config.yaml', files: [{ name: 'config.yaml', content: 'model: fixture-model\nbatch_size: 8' }] }] }] } }];
-  const { page, submissions } = await workspace({ presets, admin: true });
+test('ordinary users can load unverified presets into the editor without allocation permission or configuration previews', async () => {
+  const presets = [{ id: 'pending', name: '等待实机验收', enabled: false, loadable: true, created_by: 'admin', yaml_path: 'tests/e2e/nightly/configs/Qwen.yaml', source, validation_status: 'pending_execution', reason: '来源任务仍在排队，尚未完成实机执行。', tags: { cycle: 'nightly' }, workflow: { jobs: [{ id: 'sample', environment: 'env1', steps: [{ launch: 'python3 runner.py config.yaml', files: [{ name: 'config.yaml', content: 'model: fixture-model\nbatch_size: 8' }] }] }] } }];
+  const { page, submissions } = await workspace({ presets, canRequest: false });
   try {
     await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
-    await page.getByText('选择外部预置', { exact: true }).click();
-    assert.equal(await page.getByRole('button', { name: '使用预置 等待实机验收', exact: true }).isDisabled(), true);
-    assert.equal(await page.getByRole('button', { name: '启用预置 等待实机验收', exact: true }).isDisabled(), true);
-    await page.getByText('来源任务仍在排队，尚未完成实机执行。', { exact: true }).waitFor();
-    await page.getByText('查看任务配置', { exact: true }).click();
-    const configuration = page.getByLabel('等待实机验收 的任务配置', { exact: true });
-    assert.match(await configuration.textContent(), /python3 runner.py config.yaml/);
-    assert.match(await configuration.textContent(), /batch_size: 8/);
+    await page.getByText('选择预置任务', { exact: true }).click();
+    assert.equal(await page.getByRole('button', { name: '使用预置 等待实机验收', exact: true }).isDisabled(), false);
+    assert.equal(await page.getByRole('button', { name: '启用预置 等待实机验收', exact: true }).count(), 0);
+    assert.equal(await page.getByText('查看任务配置', { exact: true }).count(), 0);
+    await page.getByText('查看预置来源', { exact: true }).click();
+    const card = page.locator('.workflow-preset-list article');
+    assert.match(await card.textContent(), /vLLM-Ascend commit/);
+    assert.match(await card.textContent(), /tests\/e2e\/nightly\/configs\/Qwen.yaml/);
+    assert.match(await card.textContent(), /预置人员admin/);
+    assert.equal(await card.locator('pre').count(), 0);
+    assert.equal((await card.textContent()).includes(source.vllm_sha), false);
+    await page.getByRole('button', { name: '使用预置 等待实机验收', exact: true }).click();
+    assert.equal(await page.getByRole('textbox', { name: 'sample 主执行 1 · 启动命令', exact: true }).inputValue(), 'python3 runner.py config.yaml');
+    await page.getByRole('button', { name: '移除文件 config.yaml', exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: /提交任务申请/ }).isDisabled(), true);
     assert.equal(submissions.length, 0);
+  } finally { await page.close(); }
+});
+
+test('archive presets preserve fixed commits without PR resolution and accept explicitly edited commits', async () => {
+  const pinned = { revision: 'commit', commit: 'c'.repeat(40), head_sha: 'c'.repeat(40), vllm_sha: 'd'.repeat(40) };
+  const presets = [{ id: 'archive-nightly', name: '本地 nightly', origin: 'archive', loadable: true, enabled: true, source: pinned, created_by: 'admin', yaml_path: 'tests/e2e/nightly/configs/Qwen.yaml', tags: { cycle: 'nightly' }, workflow: { source: pinned, environments: [{ alias: 'env1', node_alias: 'node0', image: 'fixture/runtime:1' }], jobs: [{ id: 'sample', environment: 'env1', steps: [{ launch: 'echo fixed-commit' }] }] } }];
+  const { page, submissions } = await workspace({ presets });
+  const resolutions = [];
+  await page.route('**/api/sources/resolve', async route => { const body = route.request().postDataJSON(); resolutions.push(body); return route.fulfill({ json: { ...pinned, commit: body.commit, head_sha: body.commit } }); });
+  try {
+    await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
+    await page.getByText('选择预置任务', { exact: true }).click();
+    await page.getByRole('button', { name: '使用预置 本地 nightly', exact: true }).click();
+    assert.equal(await page.getByRole('textbox', { name: 'vLLM-Ascend PR / commit', exact: true }).inputValue(), pinned.commit);
+    await page.getByRole('button', { name: /提交任务申请/ }).click();
+    await page.getByRole('status').filter({ hasText: '已提交' }).waitFor();
+    assert.deepEqual(submissions[0].source, pinned);
+    assert.deepEqual(resolutions, []);
+    await page.getByRole('textbox', { name: 'vLLM-Ascend PR / commit', exact: true }).fill('E'.repeat(40));
+    await page.getByRole('button', { name: /解析 PR/ }).click();
+    await page.locator('.source-snapshot').getByText('e'.repeat(40), { exact: true }).waitFor();
+    assert.deepEqual(resolutions, [{ commit: 'e'.repeat(40) }]);
   } finally { await page.close(); }
 });
 
@@ -480,12 +509,12 @@ test('ordinary requests remain debug-only and changing PR while resolving cannot
     assert.equal(submissions.length, 0);
     await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
     await page.route('**/api/sources/resolve', async route => { await gate; await route.fulfill({ json: source }); });
-    await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
+    await page.getByRole('textbox', { name: 'vLLM-Ascend PR / commit', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
-    await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('124');
+    await page.getByRole('textbox', { name: 'vLLM-Ascend PR / commit', exact: true }).fill('124');
     releaseSource();
     await page.getByRole('button', { name: /解析 PR/ }).waitFor();
-    assert.equal(await page.getByText(source.head_sha, { exact: true }).count(), 0, 'old PR response must not become the new PR snapshot');
+    assert.equal(await page.locator('.source-snapshot').getByText(source.head_sha, { exact: true }).count(), 0, 'old PR response must not become the new PR snapshot');
   } finally { releaseSource(); await page.close(); }
 });
 
@@ -519,7 +548,7 @@ test('load a minimal external workflow using the same generic defaults as the AP
   const { page, errors } = await workspace({ presets });
   try {
     await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
-    await page.getByText('选择外部预置', { exact: true }).click();
+    await page.getByText('选择预置任务', { exact: true }).click();
     await page.getByRole('button', { name: '使用预置 简洁外部预置', exact: true }).click();
     await page.getByRole('tablist', { name: '作业列表', exact: true }).getByRole('tab').first().click();
     await page.getByRole('textbox', { name: 'loaded 主执行 1 · 启动命令', exact: true }).waitFor();
@@ -533,11 +562,11 @@ test('editing a legacy YAML preset preserves uploaded config and both argument l
   const { page, submissions } = await workspace({ presets });
   try {
     await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
-    await page.getByText('选择外部预置', { exact: true }).click();
+    await page.getByText('选择预置任务', { exact: true }).click();
     await page.getByRole('button', { name: '使用预置 旧配置兼容', exact: true }).click();
-    await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
+    await page.getByRole('textbox', { name: 'vLLM-Ascend PR / commit', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
-    await page.getByText(source.head_sha, { exact: true }).waitFor();
+    await page.locator('.source-snapshot').getByText(source.head_sha, { exact: true }).waitFor();
     await page.getByRole('tab', { name: 'env1', exact: true }).click();
     await page.getByRole('textbox', { name: 'env1 · 镜像', exact: true }).fill('fixture/server:1');
     await page.getByRole('tab', { name: 'env2', exact: true }).click();
@@ -569,15 +598,16 @@ test('administrators import a pinned PR catalog and enable one approved preset w
   });
   try {
     await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
-    await page.getByRole('textbox', { name: 'vLLM-Ascend PR', exact: true }).fill('123');
+    await page.getByRole('textbox', { name: 'vLLM-Ascend PR / commit', exact: true }).fill('123');
     await page.getByRole('button', { name: /解析 PR/ }).click();
-    await page.getByText(source.head_sha, { exact: true }).waitFor();
-    await page.getByText('选择外部预置', { exact: true }).click();
+    await page.locator('.source-snapshot').getByText(source.head_sha, { exact: true }).waitFor();
+    await page.getByText('选择预置任务', { exact: true }).click();
+    await page.getByText('高级管理：导入旧 PR 清单', { exact: true }).click();
     await page.getByRole('textbox', { name: '预置清单 PR 路径', exact: true }).fill('ci/catalog.json');
     await page.getByRole('button', { name: /导入预置清单/ }).click();
     await page.getByRole('button', { name: '启用预置 待启用样例', exact: true }).click();
     await page.getByRole('alert').filter({ hasText: 'HIVE_WORKFLOW_SAMPLE_PRESET_ID 未配置' }).waitFor();
-    assert.equal(await page.getByRole('button', { name: '使用预置 待启用样例', exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: '使用预置 待启用样例', exact: true }).isDisabled(), false);
     configured = true;
     await page.getByRole('button', { name: '启用预置 待启用样例', exact: true }).click();
     await page.getByText('已启用「待启用样例」。', { exact: true }).waitFor();
@@ -602,7 +632,7 @@ test('cancellation and unknown job state remain pending confirmation in task det
 test('own task records retain default scope and show queued versus environment installation', async () => {
   const initialRuns = [
     { id: 'waiting', name: '本人排队任务', owner_name: 'alice', status: 'QUEUED', space_status: null, spec: { source, jobs: [] }, jobs: [], created_at: '2026-09-13T10:00:00Z' },
-    { id: 'installing', name: '本人安装任务', owner_name: 'alice', status: 'QUEUED', space_status: 'PREPARING', preparation_phase: 'INSTALL', spec: { source, jobs: [] }, jobs: [], created_at: '2026-09-13T10:01:00Z' },
+    { id: 'installing', name: '本人安装任务', owner_name: 'alice', status: 'QUEUED', space_status: 'PREPARING', preparation_phase: 'INSTALL', spec: { source: { revision: 'commit', commit: 'abcdef12'.repeat(5), head_sha: 'abcdef12'.repeat(5) }, jobs: [] }, jobs: [], created_at: '2026-09-13T10:01:00Z' },
   ];
   const { page } = await workspace({ initialRuns });
   try {
@@ -610,6 +640,8 @@ test('own task records retain default scope and show queued versus environment i
     await records.getByText('当前显示本人任务', { exact: true }).waitFor();
     await records.locator('.task-record').filter({ hasText: '本人排队任务' }).getByText('排队中', { exact: true }).waitFor();
     await records.locator('.task-record').filter({ hasText: '本人安装任务' }).getByText('环境准备中 · 安装依赖', { exact: true }).waitFor();
+    assert.match(await records.locator('.task-record').filter({ hasText: '本人安装任务' }).textContent(), /commit abcdef12/);
+    assert.equal((await records.locator('.task-record').filter({ hasText: '本人安装任务' }).textContent()).includes('PR #'), false);
     const request = page.waitForRequest(req => new URL(req.url()).pathname === '/api/workflows');
     await records.getByRole('button', { name: '刷新任务记录' }).click();
     assert.equal(new URL((await request).url()).search, '');

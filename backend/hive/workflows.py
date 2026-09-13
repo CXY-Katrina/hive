@@ -1,4 +1,4 @@
-"""Persistent orchestration. Business operations live in referenced PR files."""
+"""Persistent orchestration; task operations live in frozen source/archive files."""
 import hashlib
 import copy
 from .domain import DomainError, uid, now, encode, decode
@@ -51,7 +51,8 @@ class Workflows:
         spec = copy.deepcopy(spec)
         if spec.get('preset_id'):
             from .presets import Presets
-            Presets(self.db, self.sources, self.settings.workflow_sample_preset_id).get(spec['preset_id'], require_enabled=True, actor=actor)
+            from .preset_archive import DEFAULT_ROOT
+            Presets(self.db, self.sources, self.settings.workflow_sample_preset_id, archive_root=DEFAULT_ROOT).get(spec['preset_id'], require_enabled=True, actor=actor)
         if spec.get('space_id'):
             space = self.db.one('SELECT * FROM workflow_spaces WHERE id=%s', (spec['space_id'],))
             self.authorize(space, actor)
@@ -74,16 +75,22 @@ class Workflows:
                 WorkflowCreate.model_validate({**spec, 'space_id': None, 'resource': original})
             except ValidationError as exc:
                 raise DomainError(exc.errors()[0]['msg'], 422) from None
-        resolved = self.sources.resolve(spec['source'].get('pr'), revision=spec['source'].get('revision', 'head'))
+        resolved = self.sources.resolve_spec(spec['source'])
         if any(spec['source'].get(key) and spec['source'][key] != resolved[key] for key in ('head_sha', 'vllm_sha')):
-            raise DomainError('PR 已更新或提交 SHA 不匹配，请重新解析后提交')
+            raise DomainError('来源已更新或提交 SHA 不匹配，请重新解析后提交')
         spec['source'] = resolved
         if spec.get('space_id') and any(resolved[k] != base_spec['source'][k] for k in ('head_sha', 'vllm_sha')):
             raise DomainError('安装代码版本不同，请新建环境；相同版本可替换 YAML 复用')
         spec['files'] = {}
+        from .preset_archive import PresetArchive
+        archive = PresetArchive()
         def capture(path, uploaded=None, config=False):
             previous = spec['files'].get(path)
             if previous and (uploaded is None or uploaded == previous['content']):
+                return
+            file = archive.file(path, uploaded)
+            if file is not None:
+                spec['files'][path] = file
                 return
             file = self.sources.file(resolved, path)
             if uploaded is not None:
@@ -103,6 +110,9 @@ class Workflows:
             nonlocal upload_tree
             if step.get('launch') or step.get('files'):
                 for item in step.get('files', []):
+                    if archive.file(item['name'], item['content']) is not None:
+                        capture(item['name'], item['content'])
+                        continue
                     source_path, upload_tree = self.sources.upload_path(resolved, item['name'], upload_tree)
                     capture(source_path, item['content'], item['name'].lower().endswith(('.yaml', '.yml')))
                     file = {**spec['files'][source_path], 'source_path': source_path, 'uploaded': True}
