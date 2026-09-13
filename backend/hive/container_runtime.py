@@ -106,17 +106,33 @@ class ContainerRuntime:
                  and all(part not in {'.','..',''} for part in path[1:].split('/')), 'Invalid artifact path')
         _require(type(max_bytes) is int and 0 <= max_bytes <= 4 * 1024 * 1024, 'Invalid artifact size limit')
         quoted, chunk_size = shlex.quote(path), 1024 * 1024
+        # These are file-policy results, not failed SSH/identity operations.
+        # Exit the inner script successfully so _exec still checks the host's
+        # container identity after Docker returns before accepting the result.
+        parts = path[1:].split('/')
+        safe_path = ''.join('test ! -L ' + shlex.quote('/' + '/'.join(parts[:index + 1]))
+                            + " || { printf 'HIVE_FILE_ERROR UNSAFE_PATH\\n'; exit 0; }\n"
+                            for index in range(len(parts)))
+        file_errors = {'MISSING': 'Artifact file is missing',
+                       'NOT_REGULAR': 'Artifact is not a regular file',
+                       'UNSAFE_PATH': 'Artifact path contains a symbolic link',
+                       'OVERSIZED': 'Artifact exceeds the supported size limit'}
         raw, expected = bytearray(), None
         for index in range(4):
-            script = (_safe_directory(path) + 'test -f ' + quoted + '\n'
+            script = (safe_path
+                      + 'if test ! -e ' + quoted + "; then printf 'HIVE_FILE_ERROR MISSING\\n'; exit 0; fi\n"
+                      + 'if ! test -f ' + quoted + "; then printf 'HIVE_FILE_ERROR NOT_REGULAR\\n'; exit 0; fi\n"
                       'size=$(stat -c %s -- ' + quoted + ')\n'
-                      'test "$size" -le ' + str(max_bytes) + '\n'
+                      'if test "$size" -gt ' + str(max_bytes) + "; then printf 'HIVE_FILE_ERROR OVERSIZED\\n'; exit 0; fi\n"
                       'digest=$(sha256sum -- ' + quoted + " | cut -d ' ' -f 1)\n"
                       'printf "HIVE_FILE %s %s\\n" "$size" "$digest"\n'
                       'dd if=' + quoted + f' bs={chunk_size} skip={index} count=1 status=none | base64 -w0\n'
                       'test "$(stat -c %s -- ' + quoted + ')" = "$size"\n'
                       'test "$(sha256sum -- ' + quoted + ' | cut -d \' \' -f 1)" = "$digest"\n')
             output = self._exec(node,identity,script)
+            for reason, message in file_errors.items():
+                if output == 'HIVE_FILE_ERROR ' + reason:
+                    raise DomainError(message, 422)
             header, _, encoded = output.partition('\n')
             match = re.fullmatch(r'HIVE_FILE ([0-9]+) ([0-9a-f]{64})',header)
             try:

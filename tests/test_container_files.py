@@ -14,6 +14,26 @@ def response(raw, chunk=None):
 
 
 class ContainerFileTests(unittest.TestCase):
+    def test_confirmed_missing_artifact_is_a_terminal_collection_error(self):
+        ssh = SSH('HIVE_FILE_ERROR MISSING')
+        with self.assertRaises(DomainError) as error:
+            ContainerRuntime(ssh).read_file(NODE, IDENTITY, '/results/missing.json')
+        self.assertEqual(error.exception.code, 422)
+        self.assertIn('missing', str(error.exception).lower())
+
+    def test_confirmed_invalid_file_kind_or_size_is_terminal_but_uncertain_reads_are_not(self):
+        for reason in ('NOT_REGULAR', 'UNSAFE_PATH', 'OVERSIZED'):
+            with self.subTest(reason=reason), self.assertRaises(DomainError) as error:
+                ContainerRuntime(SSH('HIVE_FILE_ERROR ' + reason)).read_file(NODE, IDENTITY, '/results/out')
+            self.assertEqual(error.exception.code, 422)
+        for result in (CommandResult('HIVE_FILE_ERROR MISSING', 'identity changed', 1),
+                       CommandResult('', 'network failure', 255),
+                       'HIVE_FILE_ERROR UNKNOWN', 'HIVE_FILE_ERROR MISSING\npartial-transfer',
+                       response(b'abc', b'ab')):
+            with self.subTest(result=result), self.assertRaises(DomainError) as error:
+                ContainerRuntime(SSH(result)).read_file(NODE, IDENTITY, '/results/out')
+            self.assertEqual(error.exception.code, 503)
+
     def test_file_read_is_identity_pinned_and_binary_preserving(self):
         raw = b'\x00binary\xff\n'
         ssh = SSH(response(raw))
@@ -46,7 +66,8 @@ class ContainerFileTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('bash'),'Bash is required for syntax checking')
     def test_file_read_script_has_valid_bash_syntax(self):
-        ssh = SSH(response(b'hello'))
-        ContainerRuntime(ssh).read_file(NODE,IDENTITY,"/output/some ' file.bin")
-        result = subprocess.run([shutil.which('bash'),'-n'],input=ssh.calls[0][1],text=True,capture_output=True,timeout=10)
-        self.assertEqual(result.returncode,0,result.stderr)
+        for path in ("/output/some ' file.bin", '/output/new\nline.bin'):
+            ssh = SSH(response(b'hello'))
+            ContainerRuntime(ssh).read_file(NODE,IDENTITY,path)
+            result = subprocess.run([shutil.which('bash'),'-n'],input=ssh.calls[0][1],text=True,capture_output=True,timeout=10)
+            self.assertEqual(result.returncode,0,result.stderr)
