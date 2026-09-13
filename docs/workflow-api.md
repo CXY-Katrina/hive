@@ -37,3 +37,21 @@ Node resource mappings use `GET /api/nodes/{id}/mappings` and administrator `PUT
 Runtime exports HIVE_NODE0_IP (and other allocated nodes), HIVE_HOST_IP, HIVE_CONTAINER_NAME and HIVE_RESOURCE_MAP_JSON. Bash scripts can call `hive_resource kind name`; Python scripts read the JSON environment variable. Registered paths must be accessible through the external container startup's mounts.
 
 Upload filename discovery uses GitHub's [Git trees API](https://docs.github.com/en/rest/git/trees#get-a-tree) at the fixed head SHA. Truncated trees are rejected rather than treating partial matches as unique.
+
+## Multi-node templates and personal cases (2026-09-13)
+
+Source resolution accepts `{pr,revision:"head"|"merged"}`; omitted revision defaults to head. Merged requires an actually merged PR and pins its merge_commit_sha. Preserve revision on subsequent submission and preset import.
+
+Environment `node_aliases:["node0","node1"]` supersedes legacy node_alias; role is optional and is not shown in the composer. Job node_aliases optionally selects a subset of its environment nodes. Logical definitions remain in space/workflow spec; the scheduler compiles independent persisted environment/job instances. Dependencies form an all-instances barrier. Limits are 128 environment instances and 256 job instances. Detail responses add logical_environments/logical_jobs with grouped instance status, retaining flat instances for compatibility.
+
+Artifacts accept `targets:[{environment:"env0",node_alias:"node0"},{environment:"env0",node_alias:"node1"}]`, label and absolute path. Each selected environment/node target is archived once, with separate download identity. Each expanded job instance still has the 16-item limit. Runtime HIVE_NODES_JSON exposes all allocated nodes; explicit multi-node service placeholders include `${job0.node1.endpoint}`.
+
+Artifact absolute paths support only `${task_id}` and `${job_id}` placeholders, for example `/var/tmp/results/${task_id}/${job_id}/result.json`. The API resolves them to the task UUID and executing job instance ID before persisting runnable jobs; logical definitions retain the template for reuse. Unknown placeholders and duplicate resolved target paths are rejected before resource allocation. Commands must write files to the matching location; Hive does not generate business results.
+
+Resource `target_node_ids:[]` optionally restricts allocation candidates to registered UUIDs. It never falls back to an unlisted node. This is useful for controlled acceptance runs; published baselines remove the constraint.
+
+`POST /presets/from-workflow {workflow_id,item_id,name,tags}` is admin-only and requires SUCCEEDED. It publishes an immutable, initially disabled baseline with source_workflow_id and validation_status=execution_passed, retaining the upstream verdict separately. Repeating the same request returns the original ID. Existing single-sample enable rules apply.
+
+`POST /presets/{parent_id}/derive {name,tags,workflow}` saves a new personal case from an enabled parent. Workflow must contain resource/environments, not an allocated space_id; PR and fixed source SHAs remain the parent's. Response includes scope=personal, parent_id, root_id and validation_status=unverified. It is editable/loadable but does not assert successful execution. GET presets includes public baselines plus the caller's variants (administrators see all). Workflow submission checks ownership and the root baseline's enablement.
+
+Browser drafts use per-username IndexedDB and include uploaded text, source, resource/environment/job settings and selected tabs. They restore across navigation/reload, are not server-side records, and are cleared only after successful submission or explicit reset.

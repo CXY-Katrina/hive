@@ -2,6 +2,7 @@
 import hashlib
 import copy
 from .domain import DomainError, uid, now, encode, decode
+from .workflow_expansion import expand_workflow, aggregate_instances, bind_artifact_paths
 
 
 FINAL = {'SUCCEEDED', 'FAILED', 'CANCELLED', 'SKIPPED'}
@@ -50,11 +51,13 @@ class Workflows:
         spec = copy.deepcopy(spec)
         if spec.get('preset_id'):
             from .presets import Presets
-            Presets(self.db, self.sources, self.settings.workflow_sample_preset_id).get(spec['preset_id'], require_enabled=True)
+            Presets(self.db, self.sources, self.settings.workflow_sample_preset_id).get(spec['preset_id'], require_enabled=True, actor=actor)
         if spec.get('space_id'):
             space = self.db.one('SELECT * FROM workflow_spaces WHERE id=%s', (spec['space_id'],))
             self.authorize(space, actor)
             base_spec = decode(space['spec'])
+            from .workflow_schemas import Environment
+            base_spec['environments'] = [Environment.model_validate(env).model_dump() for env in base_spec['environments']]
             if space['status'] in {'CLOSING', 'CLOSED', 'FAILED'}:
                 raise DomainError('运行空间已经关闭或正在关闭')
             if spec['environments'] and spec['environments'] != base_spec['environments']:
@@ -71,7 +74,7 @@ class Workflows:
                 WorkflowCreate.model_validate({**spec, 'space_id': None, 'resource': original})
             except ValidationError as exc:
                 raise DomainError(exc.errors()[0]['msg'], 422) from None
-        resolved = self.sources.resolve(spec['source'].get('pr'))
+        resolved = self.sources.resolve(spec['source'].get('pr'), revision=spec['source'].get('revision', 'head'))
         if any(spec['source'].get(key) and spec['source'][key] != resolved[key] for key in ('head_sha', 'vllm_sha')):
             raise DomainError('PR 已更新或提交 SHA 不匹配，请重新解析后提交')
         spec['source'] = resolved
@@ -122,6 +125,7 @@ class Workflows:
                 step_files(step)
         if sum(f['size'] for f in spec['files'].values()) > 2 * 1024 * 1024:
             raise DomainError('任务引用文件总量超过 2 MiB', 422)
+        compiled = expand_workflow(spec)
         with self.db.transaction() as c:
             # Serialize submissions by owner, including reuse and idempotent retries.
             c.execute('SELECT id FROM users WHERE id=%s FOR UPDATE', (actor.id,))
@@ -135,6 +139,7 @@ class Workflows:
                 task_id = existing['id']
             else:
                 space_id, task_id = spec.get('space_id') or uid(), uid()
+                bind_artifact_paths(compiled['jobs'], task_id)
                 if spec.get('space_id'):
                     c.execute('SELECT * FROM workflow_spaces WHERE id=%s FOR UPDATE', (space_id,))
                     space = c.fetchone()
@@ -146,12 +151,12 @@ class Workflows:
                     request = self.resources.create(actor, spec['resource'], 'workflow:' + space_id, purpose='task', cursor=c)
                     c.execute('INSERT INTO workflow_spaces (id,request_id,owner_user_id,owner_name,status,spec,runtime,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
                               (space_id, request['id'], actor.id, actor.username, 'QUEUED', encode(spec), '{}', now()))
-                    for env in spec['environments']:
+                    for env in compiled['environments']:
                         c.execute('INSERT INTO workflow_environments (space_id,alias,status,spec,runtime) VALUES (%s,%s,%s,%s,%s)',
                                   (space_id, env['alias'], 'PENDING', encode(env), '{}'))
                 c.execute('INSERT INTO workflows (id,space_id,owner_user_id,owner_name,idempotency_key,body_hash,name,spec,status,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                           (task_id, space_id, actor.id, actor.username, spec['idempotency_key'], body_hash, spec['name'], encode(spec), 'QUEUED', now()))
-                for job in spec['jobs']:
+                for job in compiled['jobs']:
                     c.execute('INSERT INTO workflow_jobs (workflow_id,id,status,phase,spec,runtime) VALUES (%s,%s,%s,%s,%s,%s)',
                               (task_id, job['id'], 'PENDING', 'pending', encode(job), '{}'))
                 self.db.audit(c, actor, 'workflow.submit', task_id, {'space_id': space_id})
@@ -162,15 +167,25 @@ class Workflows:
         self.authorize(row, actor)
         row['spec'] = decode(row['spec'])
         jobs = self.db.all('SELECT * FROM workflow_jobs WHERE workflow_id=%s ORDER BY id', (task_id,))
+        environments = {env['alias']: decode(env['spec']) for env in self.db.all(
+            'SELECT alias,spec FROM workflow_environments WHERE space_id=%s', (row['space_id'],))}
         for job in jobs:
             job['spec'], runtime = decode(job['spec']), decode(job.pop('runtime'))
             job.update(name=job['spec']['name'] or job['id'], logs=runtime.get('logs', []))
+            job.update(logical_job_id=job['spec'].get('logical_job_id', job['id']),
+                       logical_environment=job['spec'].get('logical_environment', job['spec']['environment']),
+                       node_alias=job['spec'].get('node_alias'))
             job.update(cards=runtime.get('cards', []), endpoint=runtime.get('endpoint'),
                        display_truncated=runtime.get('display_truncated', False),
                        artifacts=runtime.get('artifacts', []), metrics=runtime.get('metrics', {'metrics': [], 'verdict': 'unknown'}),
                        attempts=[{'phase': phase, 'status': a['status'], 'exit_code': a.get('exit_code'),
                                   'log_truncated': a.get('log_truncated', False)} for phase, a in runtime.get('attempts', {}).items()])
+            for artifact in job['artifacts']:
+                target = environments.get(artifact.get('environment') or job['spec']['environment'], {})
+                artifact.update(logical_environment=target.get('logical_alias', target.get('alias')),
+                                node_alias=target.get('node_alias'))
         row['jobs'] = jobs
+        row['logical_jobs'] = aggregate_instances(jobs, 'logical_job_id', 'id')
         return row
 
     def list(self, actor):
@@ -195,6 +210,7 @@ class Workflows:
                                            'resource_mappings': runtime.get('resource_mappings', {}),
                                            'mappings_version': runtime.get('mappings_version'),
                                            'resolved_image': runtime.get('resolved_image')})
+            row['logical_environments'] = aggregate_instances(row['environments'], 'logical_alias', 'alias')
         return rows
 
     def cancel(self, task_id, actor):

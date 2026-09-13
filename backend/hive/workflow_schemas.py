@@ -83,8 +83,9 @@ class Package(Input):
 
 class Environment(Input):
     alias: str = Field(pattern=r'^[a-z][a-z0-9_]{0,31}$')
-    role: Literal['server', 'client']
-    node_alias: str = Field(pattern=r'^node[0-9]+$')
+    role: Literal['server', 'client'] = 'server'
+    node_alias: str | None = Field(default=None, pattern=r'^node(?:0|[1-9][0-9]*)$')
+    node_aliases: list[str] | None = Field(default=None, min_length=1, max_length=64)
     image: str = Field(min_length=1, max_length=255)
     shell: str = '/bin/bash'
     python: str = 'python3'
@@ -97,6 +98,13 @@ class Environment(Input):
 
     @model_validator(mode='after')
     def valid_environment(self):
+        nodes = self.node_aliases if self.node_aliases is not None else ([self.node_alias] if self.node_alias else [])
+        if (not nodes or len(nodes) != len(set(nodes))
+                or any(not re.fullmatch(r'node(?:0|[1-9][0-9]*)', node) for node in nodes)
+                or self.node_alias is not None and self.node_aliases is not None and nodes != [self.node_alias]):
+            raise ValueError('环境需选择不重复的节点，不能同时提交矛盾的单节点和多节点绑定')
+        self.node_aliases = sorted(nodes, key=lambda node: int(node[4:]))
+        self.node_alias = self.node_aliases[0] if len(nodes) == 1 else None
         if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/:@+-]{0,254}', self.image):
             raise ValueError('镜像引用无效')
         for executable in (self.shell, self.python):
@@ -119,14 +127,26 @@ class Dependency(Input):
     condition: Literal['succeeded', 'ready'] = 'succeeded'
 
 
+class ArtifactTarget(Input):
+    environment: str = Field(min_length=1, max_length=32)
+    node_alias: str = Field(pattern=r'^node(?:0|[1-9][0-9]*)$')
+
+
 class Artifact(Input):
     environment: str = Field(default='', max_length=32)
+    targets: list[ArtifactTarget] = Field(default_factory=list, max_length=128)
     path: str = Field(min_length=1, max_length=1024)
     label: str = Field(default='', max_length=128)
     kind: Literal['file', 'metrics', 'auto'] = 'auto'
 
     @model_validator(mode='after')
     def valid_path(self):
+        if '${' in self.path.replace('${task_id}', '').replace('${job_id}', ''):
+            raise ValueError('产物路径只支持 ${task_id} 和 ${job_id} 模板')
+        if self.environment and self.targets:
+            raise ValueError('产物请使用环境或精确节点目标中的一种')
+        if len({(target.environment, target.node_alias) for target in self.targets}) != len(self.targets):
+            raise ValueError('产物节点目标不能重复')
         if not self.path.startswith('/') or '..' in PurePosixPath(self.path).parts or '\x00' in self.path:
             raise ValueError('产物需要容器内绝对路径')
         if not self.label:
@@ -138,6 +158,7 @@ class Job(Input):
     id: str = Field(pattern=r'^[a-z][a-z0-9_-]{0,47}$')
     name: str = Field(default='', max_length=128)
     environment: str
+    node_aliases: list[str] | None = Field(default=None, min_length=1, max_length=64)
     kind: Literal['batch', 'service'] = 'batch'
     npu_count: int = Field(default=1, ge=0, le=128)
     ports: list[int] = Field(default_factory=list, max_length=16)
@@ -170,7 +191,7 @@ class WorkflowCreate(Input):
         if len(envs) != len(self.environments):
             raise ValueError('环境代称不能重复')
         if self.resource:
-            nodes = {e.node_alias for e in self.environments}
+            nodes = {node for env in self.environments for node in env.node_aliases}
             if nodes != {'node' + str(i) for i in range(self.resource.machine_count)}:
                 raise ValueError('环境节点代称需与申请机器数一致')
         jobs = {j.id: j for j in self.jobs}
@@ -179,8 +200,15 @@ class WorkflowCreate(Input):
         for job in self.jobs:
             if self.environments and job.environment not in envs:
                 raise ValueError('job 引用了不存在的环境')
+            if job.node_aliases is not None and (len(job.node_aliases) != len(set(job.node_aliases))
+                    or any(not re.fullmatch(r'node(?:0|[1-9][0-9]*)', node) for node in job.node_aliases)
+                    or self.environments and not set(job.node_aliases) <= set(envs[job.environment].node_aliases)):
+                raise ValueError('job 节点需为所选环境中不重复的节点')
             if self.environments and any(a.environment and a.environment not in envs for a in job.artifacts):
                 raise ValueError('产物引用了不存在的服务器环境')
+            if self.environments and any(target.environment not in envs or target.node_alias not in envs[target.environment].node_aliases
+                                         for artifact in job.artifacts for target in artifact.targets):
+                raise ValueError('产物节点不属于所选环境')
             if job.kind == 'service' and not job.ready:
                 raise ValueError('服务 job 需要就绪检查入口')
             if len(set(job.ports)) != len(job.ports) or any(not 1024 <= p <= 65535 for p in job.ports):
@@ -212,7 +240,7 @@ class WorkflowCreate(Input):
         for key in jobs:
             visit(key)
         allowed = {'space_id','node_alias','host','container_name','image','source_dir','vllm_sha','ascend_sha','input'}
-        for node in {e.node_alias for e in self.environments}:
+        for node in {node for env in self.environments for node in env.node_aliases}:
             allowed.update({node + '.ip', node + '.host'})
         def check(entries, tokens):
             for entry in entries:
@@ -230,5 +258,8 @@ class WorkflowCreate(Input):
             for key in {job.id} | {d.job_id for d in job.depends_on}:
                 if jobs[key].ports:
                     tokens.update({key + '.endpoint', key + '.host', key + '.port'})
+                    nodes = jobs[key].node_aliases or (envs[jobs[key].environment].node_aliases if self.environments else
+                                                     ['node' + str(i) for i in range(64)])
+                    tokens.update(key + '.' + node + '.' + field for node in nodes for field in ('endpoint', 'host', 'port'))
             check(job.pre + job.steps + job.ready + job.post, tokens)
         return self

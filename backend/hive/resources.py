@@ -159,6 +159,8 @@ class ResourceService:
             devices = c.fetchall()
             candidates = []
             for n in nodes:
+                if spec.get("target_node_ids") and n["id"] not in spec["target_node_ids"]:
+                    continue
                 if (n["maintenance"] or n["generation"] != spec["generation"] or n["vendor"] != spec["vendor"]
                     or n["device_kind"] != spec["device_kind"]
                     or spec.get("model") and spec["model"] not in (n["model"], model_label(n))):

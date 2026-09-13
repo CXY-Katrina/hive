@@ -505,11 +505,13 @@ Set-Location ..
 
 ## 12. PR 任务编排与容器执行
 
-“机器申请”先展示环境申请，再通过醒目的“新建任务”按钮展开任务。任务中用“环境 / Jobs”Tab 切换配置。任务使用 vllm-project/vllm-ascend PR；提交时从该 PR 的固定 head SHA 读取 `.github/vllm-main-verified.commit`，冻结对应的 vLLM SHA、执行文件和输入摘要。PR 更新后需要重新解析再提交，已提交任务不随 PR 自动变化。
+“机器申请”从上到下展示机器资源、任务环境、任务 Jobs；多个环境和多个 job 分别使用 Tab。任务名默认为创建时间，可以修改。使用 vllm-project/vllm-ascend PR；提交时读取固定提交中的 `.github/vllm-main-verified.commit`，冻结对应的 vLLM SHA、执行文件和输入摘要。普通 PR 使用 head；nightly 基线可以使用已合并 PR 的 merge 提交，记录 `revision=merged`。PR 更新后需要重新解析再提交，已提交任务不随 PR 自动变化。
+
+当前浏览器按用户名自动保存完整申请草稿到 IndexedDB，包括上传的文本文件；切换页面、刷新后可继续编辑。草稿仅存在当前浏览器，不跨设备同步。成功提交后清除草稿；空间引用在提交时仍由服务端校验。无需增加数据库或前端依赖。
 
 每个任务包含多个 job，依赖只通过作业图连线设置，连线旁提供删除按钮。图中显示已添加的前处理和后处理；点击 + 才展开相应文件与启动命令。每个 job 默认超时 **10 分钟**，可修改。文件直接多选上传，支持 Shell、Python、YAML；另有“启动命令”用于调用脚本。上传 Shell/Python 需与固定 PR 中的文件一致；相同文件名在 PR 中重名时，可以将上传名称补成 PR 相对路径。YAML 可覆盖配置内容，由启动命令指定外部 runner；Hive 不解释业务 YAML。未填写启动命令时按上传顺序运行 Shell/Python 文件。
 
-服务端和客户端绑定各自容器代称、服务器代称和镜像名称，安装/核验通过上传文件与启动命令完成。二者都绑定 node0 时只申请一台机器，各自创建独立容器；绑定 node0 / node1 时申请两台机器。纯请求客户端可以选 0 张 NPU。服务 job 需提供就绪检查，从服务连出的依赖自动等待 ready，普通 job 连线等待 succeeded。无依赖且卡不冲突的 job 可以并行，同一宿主机最多 4 个运行 job。端口和普通环境变量由脚本自行配置；页面不再配置端口或软件包版本。现有启动脚本映射所有卡，实际使用范围仍依赖团队遵守分配规则。
+每个环境配置容器代称、镜像和一个或多个节点代称，不需要选择服务端/客户端角色。同一环境选 node0、node1 时分别创建独立容器；两个环境都选 node0 时在同一机器创建两个容器。安装/核验通过上传文件与启动命令完成。job 默认在其环境的所有节点分别执行，也可选择其中部分节点；纯请求客户端可以选 0 张 NPU。服务 job 需提供就绪检查，依赖等待所有上游实例 ready，普通 job 等待所有上游实例 succeeded。无依赖且卡不冲突的 job 可以并行，同一宿主机最多 4 个运行 job。端口和普通环境变量由脚本自行配置。现有启动脚本映射所有卡，实际使用范围仍依赖团队遵守分配规则。
 
 安装环境可由多个任务复用。同一运行空间继续持有原资源申请，后续任务可选择该空间。当前复用要求 PR/vLLM SHA 和安装配置相同，支持替换测试 YAML；改变安装代码或依赖时新建空间。默认所有任务结束后关闭环境并归还资源；勾选保留后按页面时长保留，并可主动关闭。取消单个任务不会关闭其他任务使用的环境，关闭空间会取消其中未结束任务。关闭结果不明确时继续保留资源并显示原因。
 
@@ -535,7 +537,7 @@ npm.cmd --prefix frontend run build
 
 容器内提供 `HIVE_CONTEXT_JSON`、`HIVE_SOURCE_DIR`、`HIVE_PACKAGES_JSON` 和平台分配的 `ASCEND_RT_VISIBLE_DEVICES`。安装入口读取包名、版本和来源等输入，自行完成安装及核验；客户端的包列表独立于服务端。未提供安装脚本或软件包链接时，平台不会凭版本号推测安装命令。
 
-每项产物只需配置服务器/容器环境、名称和容器内绝对路径，一行一项。平台从选定环境归档，不要求选择文件类型；不同环境的相同路径分别归档。普通文件原样保存；包含 metrics 字段的 JSON 按下述通用协议校验展示，Hive 不计算业务指标或阈值：
+每项产物配置环境/容器与节点目标（可多选）、名称和容器内绝对路径，一行一项。不同节点或容器的相同路径分别归档；一个明确目标不会因多个 job 实例重复归档。不要求选择文件类型。普通文件原样保存；包含 metrics 字段的 JSON 按下述通用协议校验展示，Hive 不计算业务指标或阈值：
 
 ```json
 {
@@ -552,7 +554,9 @@ npm.cmd --prefix frontend run build
 
 ### 12.3 nightly / weekly 预置接入
 
-预置从 PR 中的 JSON 清单导入，内容为 `{"items":[{"id":"...","name":"...","tags":{},"workflow":{...}}]}`，workflow 使用[任务接口契约](docs/workflow-api.md)中的通用字段。上游用例枚举、YAML 解析和结果导出适配应在 vllm-ascend PR 中维护。Hive 仓库不包含这些业务适配代码；缺少清单或入口时需先在 PR 中补齐。
+预置有两种来源：从 PR 中的 JSON 清单导入，或将平台上实际执行成功的任务发布为预置。清单格式为 `{"items":[{"id":"...","name":"...","tags":{},"workflow":{...}}]}`，workflow 使用[任务接口契约](docs/workflow-api.md)中的通用字段。上游已有的 nightly pytest 入口可直接调用，不要求为已有用例补写业务适配。Hive 不解析业务 YAML、不重写测试或阈值判定。
+
+管理员调用 `POST /api/presets/from-workflow`，提交 `{workflow_id,item_id,name,tags}`，保存成功任务的可重建配置和来源执行 ID；发布时清除本次验收的指定机器约束。发布不自动启用。用户应用已启用预置后，可修改 YAML、命令、资源参数，通过“另存新用例”保存个人变体；保留原代码提交与父预置，标记为未验证，不覆盖基线。个人变体仅本人及管理员可见。
 
 管理员可在机器申请的预置区导入清单并单项启用，也可通过 `POST /api/presets/import` 提交 `{source:{pr,head_sha,vllm_sha},path:"PR内清单.json"}`。所有导入项初始禁用，可筛选标签并查看来源。首批只开放一个已确认样例：将 `HIVE_WORKFLOW_SAMPLE_PRESET_ID` 配置为该清单条目的 `id`（不是数据库 UUID），重启 API 后由管理员单项调用 `POST /api/presets/{数据库UUID}/enable` 批准。默认配置为空时全部不可启用，不提供批量启用操作。
 
@@ -573,7 +577,7 @@ npm.cmd --prefix frontend run build
 
 首次分配时冻结每台节点的映射版本，环境复用继续使用该快照。管理员后续修改用于新空间，避免运行中的任务突然指向其他文件。一个节点最多 128 条、合计 16 KiB；并发编辑使用版本号检查，冲突时重新读取。
 
-平台预置 `HIVE_NODE0_IP`、`HIVE_NODE1_IP` 等实际 IP、`HIVE_HOST_IP`、`HIVE_CONTAINER_NAME`、`HIVE_SOURCE_DIR`。启动命令中也可写 `${node0.ip}`、`${container_name}` 等代称。普通 Bash 变量及端口由用户脚本管理，不要求在网页重复声明。
+平台预置 `HIVE_NODE0_IP`、`HIVE_NODE1_IP` 等所有分配节点的实际 IP；`HIVE_HOST_IP` / `${host}` 始终是当前实例所在服务器，`HIVE_CONTAINER_NAME` / `${container_name}` 是当前真实容器名。启动命令可用 `${node0.ip}`、`${node1.ip}` 访问任意已申请节点。Python 可读取 `HIVE_NODES_JSON` 获取全部节点上下文。多节点服务使用 `${服务jobID.node0.endpoint}` 指定目标实例；同节点的简写 `${服务jobID.endpoint}` 指向本节点实例，无同节点且存在多个实例时必须写明节点。普通 Bash 变量及端口由用户脚本管理。
 
 Bash 入口可用 `hive_resource model 组织/权重名`、`hive_resource dataset 组织/数据集名`、`hive_resource package 包别名` 查询本环境冻结的实际路径；不存在的映射返回非零退出码。Python 入口读取 `os.environ["HIVE_RESOURCE_MAP_JSON"]`，JSON 结构为 `{"model":{},"dataset":{},"image":{},"package":{}}`，每类按逻辑名称索引。平台只提供通用路径解析，模型及测试逻辑仍维护在外部 PR。
 

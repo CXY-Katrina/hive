@@ -164,3 +164,20 @@ class SourceHTTPTests(unittest.TestCase):
         self.github.responses[f'{API}/pulls/123'] = HTTPError('ignored', 403, 'Denied', {}, body)
         self.assertEqual(self.client.post('/api/sources/resolve', json={'pr': 123}).status_code, 502)
         self.assertTrue(body.closed)
+
+    def test_merged_pr_resolves_exact_merge_revision_for_nightly_baseline(self):
+        merge = '3' * 40
+        self.github.responses[f'{API}/pulls/123'].update(merged=True, merge_commit_sha=merge)
+        self.github.responses[f'{API}/contents/{COMMIT_FILE}?ref={merge}'] = github_file(COMMIT_FILE, VLLM + '\n')
+        response = self.client.post('/api/sources/resolve', json={'pr':123, 'revision':'merged'})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['head_sha'], merge)
+        self.assertEqual(response.json()['revision'], 'merged')
+        self.github.responses[f'{API}/pulls/123']['merged'] = False
+        self.assertEqual(self.client.post('/api/sources/resolve', json={'pr':123, 'revision':'merged'}).status_code, 422)
+
+    def test_file_source_rejects_non_string_revision(self):
+        source = self.client.post('/api/sources/resolve',json={'pr':123}).json()
+        for revision in ([],{},None,1):
+            response = self.client.post('/api/sources/file',json={'source':{**source,'revision':revision},'path':'case.yaml'})
+            self.assertEqual(response.status_code,422,response.text)

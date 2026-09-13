@@ -190,6 +190,9 @@ class WorkflowEngine:
         for alias, binding in space['runtime'].get('bindings', {}).items():
             result[alias + '.ip'] = binding['host']
             result[alias + '.host'] = binding['host']
+        result['nodes'] = [{'node_alias': alias, 'host': binding['host'], 'ip': binding['host']}
+                           for alias, binding in sorted(space['runtime'].get('bindings', {}).items(),
+                                                        key=lambda item: int(item[0][4:]))]
         result['resource_mappings'] = state.get('resource_mappings', {})
         return result
 
@@ -198,7 +201,8 @@ class WorkflowEngine:
                   'HIVE_CONTEXT_JSON': encode(context), 'HIVE_PACKAGES_JSON': encode(env['spec']['packages']),
                   'ASCEND_RT_VISIBLE_DEVICES': ','.join(cards),
                   'HIVE_RESOURCE_MAP_JSON': encode(env['runtime'].get('resource_mappings', {})),
-                  'HIVE_HOST_IP': context['host'], 'HIVE_CONTAINER_NAME': context['container_name']}
+                  'HIVE_HOST_IP': context['host'], 'HIVE_CONTAINER_NAME': context['container_name'],
+                  'HIVE_NODES_JSON': encode(context['nodes'])}
         for key, value in context.items():
             if re.fullmatch(r'node[0-9]+\.ip', key):
                 values['HIVE_' + key.replace('.', '_').upper()] = value
@@ -302,6 +306,10 @@ class WorkflowEngine:
                 context[other['id'] + '.port'] = other['spec']['ports'][0]
         if config['ports']:
             context.update({job['id'] + '.endpoint': context['endpoint'], job['id'] + '.host': context['host'], job['id'] + '.port': context['port']})
+        for alias, instance in config.get('endpoint_sources', {}).items():
+            for field in ('endpoint', 'host', 'port'):
+                if instance + '.' + field in context:
+                    context[alias + '.' + field] = context[instance + '.' + field]
         variables = self.variables(env, context, state.get('cards', []))
         variables['HIVE_TASK_ID'] = task['id']
         if job['status'] == 'PENDING':
@@ -607,6 +615,10 @@ class WorkflowEngine:
                                         context[other['id'] + '.endpoint'] = other['runtime']['endpoint']
                                         context[other['id'] + '.host'] = other['runtime']['host']
                                         context[other['id'] + '.port'] = other['spec']['ports'][0]
+                                for alias, instance in job['spec'].get('endpoint_sources', {}).items():
+                                    for field in ('endpoint', 'host', 'port'):
+                                        if instance + '.' + field in context:
+                                            context[alias + '.' + field] = context[instance + '.' + field]
                                 code = self.attempt(job, 'post', render_steps(job['spec']['post'], env['spec'], context), env, self.variables(env, context, job['runtime'].get('cards', [])), self.save_job, min(300, job['spec']['timeout_seconds']))
                                 if code is None:
                                     continue

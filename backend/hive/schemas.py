@@ -89,6 +89,7 @@ class NodeUpdate(Input):
 
 
 class ResourceSpec(Input):
+    target_node_ids: list[str] = Field(default_factory=list, max_length=64)
     generation: str = Field(min_length=1,max_length=16,pattern=r"^[A-Za-z0-9_.-]+$")
     vendor: str = Field(default="ascend",pattern=r"^[a-z0-9_.-]{1,64}$")
     device_kind: str = Field(default="npu",pattern=r"^[a-z0-9_.-]{1,32}$")
@@ -106,6 +107,8 @@ class ResourceSpec(Input):
 
     @model_validator(mode="after")
     def single_node(self):
+        if self.target_node_ids and (len(set(self.target_node_ids)) != len(self.target_node_ids) or len(self.target_node_ids) < self.machine_count or any(not re.fullmatch(r'[0-9a-f-]{36}', node) for node in self.target_node_ids)):
+            raise ValueError('指定节点需唯一、有效且数量不少于申请机器数')
         if self.machine_count == 1:
             self.require_interconnect = False
         return self

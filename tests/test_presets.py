@@ -170,3 +170,77 @@ class PresetHTTPTests(unittest.TestCase):
         self.assertEqual(self.client.post(f"/api/presets/{first['id']}/enable").status_code,200)
         self.assertEqual(self.client.post(f"/api/presets/{second['id']}/enable").status_code,409)
         self.assertEqual(sum(row['enabled'] for row in self.client.get('/api/presets').json()),1)
+
+    def test_parameter_variant_is_private_and_does_not_change_approved_parent(self):
+        from tests.test_workflows import payload
+        body = self.catalog_body()
+        parent = next(p for p in self.client.post('/api/presets/import', json=body).json() if p['item_id']=='sample-case')
+        self.client.post('/api/presets/' + parent['id'] + '/enable')
+        workflow = payload()
+        workflow.pop('idempotency_key')
+        workflow['source'] = {'pr':123,'head_sha':HEAD,'vllm_sha':VLLM}
+        self.client.cookies.set('hive_session', self.tokens['alice'])
+        response = self.client.post('/api/presets/' + parent['id'] + '/derive', json={'name':'Adjusted case','tags':{'variant':'small'},'workflow':workflow})
+        self.assertEqual(response.status_code, 201, response.text)
+        variant = response.json()
+        self.assertEqual(variant['parent_id'], parent['id'])
+        self.assertEqual(variant['validation_status'], 'unverified')
+        self.assertEqual(variant['scope'], 'personal')
+        self.assertTrue(variant['enabled'])
+        own = self.client.get('/api/presets').json()
+        self.assertIn(variant['id'], [p['id'] for p in own])
+        self.assertEqual(next(p for p in own if p['id']==parent['id'])['name'], parent['name'])
+        self.client.cookies.set('hive_session', self.tokens['bob'])
+        self.assertNotIn(variant['id'], [p['id'] for p in self.client.get('/api/presets').json()])
+        denied = self.client.post('/api/presets/' + variant['id'] + '/derive', json={'name':'Stolen','tags':{},'workflow':workflow})
+        self.assertEqual(denied.status_code, 403, denied.text)
+
+    def test_variant_preserves_merged_revision_when_client_omits_revision(self):
+        from tests.test_workflows import payload
+        from hive.domain import encode
+        parent = next(p for p in self.client.post('/api/presets/import',json=self.catalog_body()).json() if p['item_id']=='sample-case')
+        pinned = {**parent['source'],'revision':'merged'}
+        with self.db.transaction() as c:
+            c.execute('UPDATE workflow_presets SET source=%s WHERE id=%s',(encode(pinned),parent['id']))
+        self.client.post('/api/presets/'+parent['id']+'/enable')
+        workflow = payload()
+        workflow.pop('idempotency_key')
+        workflow['source'] = {'pr':123,'head_sha':HEAD,'vllm_sha':VLLM}
+        response = self.client.post('/api/presets/'+parent['id']+'/derive',json={'name':'Merged variant','workflow':workflow})
+        self.assertEqual(response.status_code,201,response.text)
+        self.assertEqual(response.json()['workflow']['source']['revision'],'merged')
+
+    def test_admin_can_publish_successful_workflow_as_reusable_baseline_without_node_pin(self):
+        from tests.test_workflows import payload
+        from hive.domain import uid, encode, now
+        workflow = payload()
+        workflow['source'] = {'pr':123,'head_sha':HEAD,'vllm_sha':VLLM}
+        workflow['resource']['target_node_ids'] = ['11111111-1111-1111-1111-111111111111']
+        task_id, space_id, request_id = uid(), uid(), uid()
+        actor = self.identity.current(self.tokens['admin'])
+        with self.db.transaction() as c:
+            c.execute('INSERT INTO resource_requests (id,owner_user_id,owner_name,idempotency_key,body_hash,spec,status,purpose,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)', (request_id,actor.id,actor.username,'publish-request','b'*64,encode(workflow['resource']),'RELEASED','task',now()))
+            c.execute('INSERT INTO workflow_spaces (id,request_id,owner_user_id,owner_name,status,spec,runtime,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',(space_id,request_id,actor.id,actor.username,'CLOSED',encode(workflow),'{}',now()))
+            c.execute('INSERT INTO workflows (id,space_id,owner_user_id,owner_name,idempotency_key,body_hash,name,spec,status,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',(task_id,space_id,actor.id,actor.username,'publish-run','a'*64,'Actual run',encode(workflow),'SUCCEEDED',now()))
+        try:
+            request = {'workflow_id':task_id,'item_id':'sample-case','name':'Verified sample','tags':{'cadence':'nightly'}}
+            self.client.cookies.set('hive_session', self.tokens['alice'])
+            self.assertEqual(self.client.post('/api/presets/from-workflow', json=request).status_code,403)
+            self.client.cookies.set('hive_session', self.tokens['admin'])
+            response=self.client.post('/api/presets/from-workflow', json=request)
+            self.assertEqual(response.status_code,201,response.text)
+            case=response.json()
+            self.assertEqual(case['source_workflow_id'],task_id)
+            self.assertEqual(case['validation_status'],'execution_passed')
+            self.assertFalse(case['enabled'])
+            self.assertEqual(case['workflow']['resource']['target_node_ids'],[])
+            self.assertEqual(self.client.post('/api/presets/'+case['id']+'/enable').status_code,200)
+            self.assertEqual(self.client.post('/api/presets/from-workflow',json=request).json()['id'],case['id'])
+            with self.db.transaction() as c:
+                c.execute('UPDATE workflows SET status=%s WHERE id=%s', ('FAILED',task_id))
+            rejected = self.client.post('/api/presets/from-workflow',json={**request,'item_id':'failed-case'})
+            self.assertEqual(rejected.status_code,409,rejected.text)
+        finally:
+            with self.db.transaction() as c:
+                c.execute('DELETE FROM workflows WHERE id=%s',(task_id,))
+                c.execute('DELETE FROM workflow_spaces WHERE id=%s',(space_id,))

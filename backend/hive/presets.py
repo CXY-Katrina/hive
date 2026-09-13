@@ -1,5 +1,6 @@
 """Administratively imported, immutable JSON workflow catalogs."""
 import json
+import hashlib
 import re
 from .domain import DomainError, decode, encode, now, uid
 from .identity import Identity
@@ -50,10 +51,93 @@ class Presets:
             row[key] = decode(row[key], {})
         row['enabled'] = bool(row['enabled'])
         row['path'] = row.pop('catalog_path')
+        if row['path'].startswith('@workflow/'):
+            row['source_workflow_id'] = row['path'].split('/', 1)[1]
+            row['validation_status'] = 'execution_passed'
         return row
 
-    def list(self):
-        return [self._decode(row) for row in self.db.all('SELECT * FROM workflow_presets ORDER BY name,id')]
+    def from_workflow(self, actor, workflow_id, item_id, name, tags):
+        """Publish the reusable definition of an actually successful execution."""
+        from .workflow_schemas import WorkflowCreate
+        Identity.require_admin(actor)
+        run = self.db.one('SELECT * FROM workflows WHERE id=%s', (workflow_id,))
+        if not run:
+            raise DomainError('任务不存在', 404)
+        if run['status'] != 'SUCCEEDED':
+            raise DomainError('只能将执行成功的任务发布为已验证预置', 409)
+        spec = decode(run['spec'], {})
+        config = {key: value for key, value in spec.items() if key in WorkflowCreate.model_fields
+                  and key not in {'idempotency_key', 'preset_id', 'space_id'}}
+        if not config.get('resource') or not config.get('environments'):
+            space = self.db.one('SELECT spec FROM workflow_spaces WHERE id=%s', (run['space_id'],))
+            original = decode(space['spec'], {}) if space else {}
+            config['resource'] = original.get('resource')
+            config['environments'] = original.get('environments', [])
+        if not config.get('resource') or not config.get('environments'):
+            raise DomainError('任务缺少可重建的资源或环境定义', 409)
+        config['resource']['target_node_ids'] = []
+        config['name'] = name.strip()
+        item = catalog_items(encode({'items':[{'id':item_id,'name':name,'tags':tags,'workflow':config}]}))[0]
+        source = config['source']
+        path = '@workflow/' + workflow_id
+        digest = hashlib.sha256(encode(item).encode()).hexdigest()
+        ident = uid()
+        with self.db.transaction() as c:
+            c.execute('''INSERT INTO workflow_presets
+                (id,item_id,name,tags,workflow,source,source_head,catalog_path,sha256,enabled,imported_by,imported_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE,%s,%s)
+                ON DUPLICATE KEY UPDATE id=id''',
+                (ident,item_id,item['name'],encode(tags),encode(config),encode(source),source['head_sha'],path,digest,actor.username,now()))
+            c.execute('SELECT id,sha256 FROM workflow_presets WHERE source_head=%s AND catalog_path=%s AND item_id=%s',
+                      (source['head_sha'],path,item_id))
+            saved = c.fetchone()
+            if saved['sha256'] != digest:
+                raise DomainError('该执行已发布；参数修改请另存新用例', 409)
+            ident = saved['id']
+            self.db.audit(c,actor,'preset.publish',ident,{'workflow_id':workflow_id,'sha256':digest})
+        return self.get(ident)
+
+    def list(self, actor=None):
+        rows = [self._decode(row) for row in self.db.all('SELECT * FROM workflow_presets ORDER BY name,id')]
+        if actor:
+            rows.extend(self._variant(row) for row in self.db.all(
+                'SELECT * FROM workflow_preset_variants WHERE owner_user_id=%s OR %s ORDER BY created_at,id', (actor.id, actor.admin)))
+        return rows
+
+    @staticmethod
+    def _variant(row):
+        value = dict(row)
+        for key in ('workflow', 'source', 'tags'):
+            value[key] = decode(value[key], {})
+        value.update(scope='personal', validation_status='unverified', enabled=True,
+                     reason='参数变体尚未执行验证', imported_by=value['owner_name'], imported_at=value['created_at'])
+        return value
+
+    def derive(self, actor, preset_id, name, tags, workflow):
+        from .workflow_schemas import WorkflowCreate
+        from pydantic import ValidationError
+        parent = self.get(preset_id, require_enabled=True, actor=actor)
+        name = name.strip()
+        if not name or len(name) > 128 or len(tags) > 32 or any(not isinstance(k,str) or not 1 <= len(k) <= 64 or not isinstance(v,str) or len(v)>256 for k,v in tags.items()):
+            raise DomainError('用例名称或标签无效', 422)
+        if len(encode(workflow).encode()) > 2 * 1024 * 1024:
+            raise DomainError('用例配置最多 2 MiB', 422)
+        try:
+            parsed = WorkflowCreate.model_validate({**workflow, 'name':name, 'idempotency_key':'preset-variant'})
+        except ValidationError as exc:
+            raise DomainError(exc.errors()[0]['msg'], 422) from None
+        if parsed.space_id:
+            raise DomainError('新用例需保存机器规格，不绑定已分配运行空间', 422)
+        if any(str(parsed.source.get(k)) != str(parent['source'].get(k)) for k in ('pr','head_sha','vllm_sha')):
+            raise DomainError('参数变体需保留原预置的 PR 和代码版本', 422)
+        config = parsed.model_dump(exclude={'idempotency_key','preset_id','space_id'})
+        config['source'] = parent['source']
+        ident, stamp = uid(), now()
+        with self.db.transaction() as c:
+            c.execute('INSERT INTO workflow_preset_variants (id,parent_id,root_id,owner_user_id,owner_name,name,tags,workflow,source,sha256,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                      (ident,preset_id,parent.get('root_id',preset_id),actor.id,actor.username,name,encode(tags),encode(config),encode(parent['source']),hashlib.sha256(encode(config).encode()).hexdigest(),stamp))
+            self.db.audit(c,actor,'preset.derive',ident,{'parent_id':preset_id})
+        return self.get(ident, actor=actor)
 
     def import_catalog(self, actor, source, path):
         Identity.require_admin(actor)
@@ -61,7 +145,7 @@ class Presets:
                 or not re.fullmatch(r'[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*',path)
                 or any(part in {'.','..'} for part in path.split('/'))):
             raise DomainError('预置导入只接受仓库内的 JSON 清单路径，不解释 YAML 或扫描业务目录',422)
-        resolved = self.sources.resolve(source['pr'])
+        resolved = self.sources.resolve(source['pr'], revision=source.get('revision','head'))
         if any(source[key] != resolved[key] for key in ('head_sha', 'vllm_sha')):
             raise DomainError('PR 来源已变化，请重新解析后导入清单', 409)
         try:
@@ -94,10 +178,17 @@ class Presets:
             self.db.audit(c,actor,'presets.import',file['sha256'],{'path':path,'source':resolved,'items':ids})
         return [row for row in self.list() if row['id'] in ids]
 
-    def get(self, preset_id, require_enabled=False):
+    def get(self, preset_id, require_enabled=False, actor=None):
         row = self.db.one('SELECT * FROM workflow_presets WHERE id=%s', (preset_id,))
         if not row:
-            raise DomainError('预置不存在', 404)
+            variant = self.db.one('SELECT * FROM workflow_preset_variants WHERE id=%s', (preset_id,))
+            if not variant:
+                raise DomainError('预置不存在', 404)
+            if actor is None or not (actor.admin or variant['owner_user_id'] == actor.id):
+                raise DomainError('只能访问自己的参数变体', 403)
+            if require_enabled:
+                self.get(variant['root_id'], require_enabled=True, actor=actor)
+            return self._variant(variant)
         if require_enabled and not row['enabled']:
             raise DomainError('此预置尚未获得管理员的单项启用批准', 409)
         return self._decode(row)

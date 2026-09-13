@@ -392,3 +392,13 @@ class MySQLIntegration(unittest.TestCase):
             c.execute('UPDATE devices SET memory_used=%s WHERE id=%s',(baseline+2*1024**2,ident))
         self.assertTrue(cleanup.run(request['id']))
         self.assertEqual(self.resources.get(request['id'])['status'],'RELEASED')
+
+    def test_explicit_node_constraint_cannot_allocate_another_available_node(self):
+        first = self.node('10.0.0.1')
+        second = self.node('10.0.0.2')
+        body = ResourceSpec(generation='A2', target_node_ids=[second['id']]).model_dump()
+        request = self.resources.create(self.alice, body, 'specific-node')
+        reserved = self.resources.reserve(request['id'])
+        self.assertIsNotNone(reserved)
+        self.assertEqual({d['node_id'] for d in self.resources.devices(request['id'])}, {second['id']})
+        self.assertNotIn(first['id'], body['target_node_ids'])

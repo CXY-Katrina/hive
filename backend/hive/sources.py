@@ -79,17 +79,21 @@ class SourceService:
                 'content': content, 'sha256': hashlib.sha256(raw).hexdigest(),
                 'git_blob_sha': value['sha'], 'size': len(raw)}
 
-    def resolve(self, pr):
+    def resolve(self, pr, revision='head'):
         if isinstance(pr, str):
             match = re.fullmatch(r'(?:https://github\.com/vllm-project/vllm-ascend/pull/)?([1-9][0-9]{0,9})/?', pr.strip())
             pr = int(match[1]) if match else None
         if type(pr) is not int or not 1 <= pr <= 2_147_483_647:
             raise DomainError('请输入有效的 vllm-ascend PR 编号', 422)
+        if not isinstance(revision,str) or revision not in {'head','merged'}:
+            raise DomainError('代码版本类型无效', 422)
         value = self._json(f'{API}/pulls/{pr}')
+        if revision == 'merged' and value.get('merged') is not True:
+            raise DomainError('只有已合并 PR 可作为 nightly 合并版本来源', 422)
         try:
             if value['number'] != pr or value['base']['repo']['full_name'] != REPOSITORY:
                 raise ValueError()
-            head_sha = value['head']['sha']
+            head_sha = value['merge_commit_sha'] if revision == 'merged' else value['head']['sha']
             if not re.fullmatch(r'[0-9a-f]{40}', head_sha):
                 raise ValueError()
         except (KeyError, TypeError, ValueError):
@@ -98,7 +102,7 @@ class SourceService:
         vllm_sha = commit['content'].strip()
         if not re.fullmatch(r'[0-9a-f]{40}', vllm_sha):
             raise DomainError('vLLM commit 文件必须包含唯一的完整提交 SHA', 422)
-        return {'pr': pr, 'repository': REPOSITORY, 'head_sha': head_sha, 'vllm_sha': vllm_sha,
+        return {'pr': pr, 'revision': revision, 'repository': REPOSITORY, 'head_sha': head_sha, 'vllm_sha': vllm_sha,
                 'commit_file': COMMIT_FILE, 'commit_file_sha256': commit['sha256'],
                 'resolved_at': str(now()), 'url': f'https://github.com/{REPOSITORY}/pull/{pr}'}
 
