@@ -597,3 +597,23 @@ test('cancellation and unknown job state remain pending confirmation in task det
     assert.equal(await page.getByText('已清理', { exact: true }).count(), 0);
   } finally { await page.close(); }
 });
+
+
+test('own task records retain default scope and show queued versus environment installation', async () => {
+  const initialRuns = [
+    { id: 'waiting', name: '本人排队任务', owner_name: 'alice', status: 'QUEUED', space_status: null, spec: { source, jobs: [] }, jobs: [], created_at: '2026-09-13T10:00:00Z' },
+    { id: 'installing', name: '本人安装任务', owner_name: 'alice', status: 'QUEUED', space_status: 'PREPARING', preparation_phase: 'INSTALL', spec: { source, jobs: [] }, jobs: [], created_at: '2026-09-13T10:01:00Z' },
+  ];
+  const { page } = await workspace({ initialRuns });
+  try {
+    const records = page.getByRole('region', { name: '任务记录', exact: true });
+    await records.getByText('当前显示本人任务', { exact: true }).waitFor();
+    await records.locator('.task-record').filter({ hasText: '本人排队任务' }).getByText('排队中', { exact: true }).waitFor();
+    await records.locator('.task-record').filter({ hasText: '本人安装任务' }).getByText('环境准备中 · 安装依赖', { exact: true }).waitFor();
+    const request = page.waitForRequest(req => new URL(req.url()).pathname === '/api/workflows');
+    await records.getByRole('button', { name: '刷新任务记录' }).click();
+    assert.equal(new URL((await request).url()).search, '');
+    await records.getByRole('button', { name: '查看任务 本人安装任务', exact: true }).click();
+    await page.getByRole('dialog').getByText('环境准备中 · 安装依赖', { exact: true }).waitFor();
+  } finally { await page.close(); }
+});

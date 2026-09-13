@@ -167,8 +167,8 @@ class Workflows:
         self.authorize(row, actor)
         row['spec'] = decode(row['spec'])
         jobs = self.db.all('SELECT * FROM workflow_jobs WHERE workflow_id=%s ORDER BY id', (task_id,))
-        environments = {env['alias']: decode(env['spec']) for env in self.db.all(
-            'SELECT alias,spec FROM workflow_environments WHERE space_id=%s', (row['space_id'],))}
+        environment_rows = self.db.all('SELECT alias,spec,status FROM workflow_environments WHERE space_id=%s', (row['space_id'],))
+        environments = {env['alias']: decode(env['spec']) for env in environment_rows}
         for job in jobs:
             job['spec'], runtime = decode(job['spec']), decode(job.pop('runtime'))
             job.update(name=job['spec']['name'] or job['id'], logs=runtime.get('logs', []))
@@ -186,7 +186,15 @@ class Workflows:
                                 node_alias=target.get('node_alias'))
         row['jobs'] = jobs
         row['logical_jobs'] = aggregate_instances(jobs, 'logical_job_id', 'id')
+        space = self.db.one('SELECT status FROM workflow_spaces WHERE id=%s', (row['space_id'],))
+        row.update(space_status=space['status'] if space else None,
+                   preparation_phase=self.preparation_phase(env['status'] for env in environment_rows))
         return row
+
+    @staticmethod
+    def preparation_phase(statuses):
+        statuses = set(statuses)
+        return next((phase for phase in ('BOOTSTRAPPING', 'CHECKOUT', 'INSTALL', 'VERIFY') if phase in statuses), None)
 
     def list(self, actor):
         rows = self.db.all('SELECT id FROM workflows WHERE owner_user_id=%s OR %s ORDER BY created_at DESC LIMIT 500', (actor.id, actor.admin))
