@@ -560,7 +560,7 @@ npm.cmd --prefix frontend run build
 
 管理员可在机器申请的预置区导入清单并单项启用，也可通过 `POST /api/presets/import` 提交 `{source:{pr,head_sha,vllm_sha},path:"PR内清单.json"}`。所有导入项初始禁用，可筛选标签并查看来源。首批只开放一个已确认样例：将 `HIVE_WORKFLOW_SAMPLE_PRESET_ID` 配置为该清单条目的 `id`（不是数据库 UUID），重启 API 后由管理员单项调用 `POST /api/presets/{数据库UUID}/enable` 批准。默认配置为空时全部不可启用，不提供批量启用操作。
 
-指定 Qwen3 样例的固定来源、配置与实际排队状态见[样例记录](docs/nightly-qwen3.md)。新设备不迁移旧数据，预置列表初始为空；需要登记该设备的镜像、权重及数据集映射，再提交外部任务配置。其他 nightly/weekly 用例等待样例验收后再接入执行。
+指定 Qwen3 样例已改用 159 的现有镜像进行验收，固定来源、配置与实际状态见[样例记录](docs/nightly-qwen3.md)。外部环境脚本支持保留镜像已有运行版本，并在报告中与 PR 脚本来源分别记录；客户端可用独立 venv 继承大包，只补缺失依赖。新设备不迁移旧数据，预置列表初始为空；需要登记该设备的镜像、权重及数据集映射，再提交外部任务配置。其他 nightly/weekly 用例等待样例验收后再接入执行。
 
 ### 12.4 节点资源映射与动态参数
 
