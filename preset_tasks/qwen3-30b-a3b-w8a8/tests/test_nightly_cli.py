@@ -38,8 +38,8 @@ class NightlyCLITest(unittest.TestCase):
         )
         shell = self.cli("parameters", "--config", edited, "--case", "", "--format", "shell")
         self.assertEqual(shell.returncode, 0, shell.stderr)
-        self.assertIn("HIVE_CASE=edited-case", shell.stdout)
-        self.assertIn("HIVE_MODEL_NAME=team/edited-model", shell.stdout)
+        self.assertIn("TASK_CASE=edited-case", shell.stdout)
+        self.assertIn("TASK_MODEL_NAME=team/edited-model", shell.stdout)
         output = self.root / "edited-output"
         result = self.cli(
             "prepare",

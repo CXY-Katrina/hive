@@ -4,6 +4,7 @@ import type { WorkflowEnvironment, WorkflowJob, WorkflowSource } from './workflo
 import { defaultResource } from './components/ResourceForm';
 
 export interface WorkflowDraft {
+  formatVersion?: 2; legacyMissingScripts?: boolean;
   name: string; pr: string; source?: WorkflowSource; environments: WorkflowEnvironment[]; jobs: WorkflowJob[];
   reuse: boolean; spaceId: string; retainMinutes: number; presetId?: string | number; presetName?: string;
   presetYamlPath?: string; presetTags?: Record<string, string>; selectedEnvironment: number; selectedJobId?: string;

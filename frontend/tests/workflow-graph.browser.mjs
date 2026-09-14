@@ -51,8 +51,8 @@ test('ports choose service readiness automatically and a visible button removes 
 test('nodes show pre/main/post steps and every dependency route avoids unrelated job blocks', async () => {
   const page = await open([job('serve', [], 'service'), job('evaluate', ['serve']), job('report', ['serve', 'evaluate']), job('parallel', ['serve'])]);
   try {
-    assert.equal(await page.getByText('前置检查', { exact: true }).count(), 4);
-    assert.equal(await page.getByText('后置检查', { exact: true }).count(), 4);
+    assert.equal(await page.getByText('执行前检查', { exact: true }).count(), 4);
+    assert.equal(await page.getByText('执行后检查', { exact: true }).count(), 4);
     assert.equal(await page.getByText('preflight.sh', { exact: true }).count(), 4);
     const collisions = await page.evaluate(() => {
       const nodes = [...document.querySelectorAll('[data-job-id]')].map(n => ({ id: n.dataset.jobId, rect: n.getBoundingClientRect() }));

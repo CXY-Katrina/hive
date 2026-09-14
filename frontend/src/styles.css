@@ -2879,3 +2879,11 @@ tbody tr:last-child td {
 
 .workflow-bootstrap { margin: 14px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; }
 .workflow-bootstrap > summary { cursor: pointer; font-weight: 600; }
+
+.workflow-variable-guide { margin: 18px 0; padding: 14px; background: #f5f9f4; border: 1px solid var(--border); border-radius: 6px; }
+.workflow-variable-guide th,.workflow-variable-guide td { padding: 8px 10px; white-space: nowrap; }
+.task-file-list .uploaded-files { width: 100%; display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,320px),1fr)); gap: 8px; }
+
+.task-file-list .uploaded-file { width: 100%; min-width: 0; }
+.task-file-list .uploaded-file code { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.task-file-list .uploaded-file button { flex: 0 0 auto; white-space: nowrap; }

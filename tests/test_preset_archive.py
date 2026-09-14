@@ -117,14 +117,26 @@ class ArchiveWorkflowHTTP(unittest.TestCase):
         self.assertEqual(len(task['jobs']), 3)
         self.assertNotIn('pr', task['spec']['source'])
         files = task['spec']['files']
-        self.assertGreaterEqual(len(files), 17)
+        self.assertEqual(len(files), 5)
         helpers = {name: file for name, file in files.items() if name.startswith('hive_presets/qwen3-30b-a3b-w8a8/')}
         self.assertTrue(all(f['origin'] == 'hive_archive' and f['uploaded'] for f in helpers.values()))
         self.assertEqual(files[row['yaml_path']]['origin'], 'upstream')
         self.assertFalse(any('/pulls/' in url or '/tools/' in url for url in calls))
         changed = copy.deepcopy(body)
         changed['idempotency_key'] = 'changed-archive'
-        changed['environments'][0]['install'][0]['files'][0]['content'] += '\nprint("changed")\n'
+        edited_name = changed['environments'][0]['install'][0]['files'][0]['name']
+        def edit_shared(value):
+            if isinstance(value, list):
+                for child in value:
+                    edit_shared(child)
+            elif isinstance(value, dict):
+                for attachment in value.get('files', []):
+                    if attachment['name'] == edited_name:
+                        attachment['content'] += '\n# user change\n'
+                for key, child in value.items():
+                    if key != 'files':
+                        edit_shared(child)
+        edit_shared(changed)
         stale = self.client.post('/api/workflows', json=changed)
         self.assertEqual(stale.status_code, 201, stale.text)
         edited_name = changed['environments'][0]['install'][0]['files'][0]['name']

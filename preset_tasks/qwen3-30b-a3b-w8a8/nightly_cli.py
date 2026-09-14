@@ -344,10 +344,10 @@ def main(argv=None):
             }
             if args.format == "shell":
                 for variable, key in (
-                    ("HIVE_CASE", "case"),
-                    ("HIVE_MODEL_NAME", "model"),
-                    ("HIVE_DATASET_NAME", "dataset"),
-                    ("HIVE_BENCHMARK", "benchmark"),
+                    ("TASK_CASE", "case"),
+                    ("TASK_MODEL_NAME", "model"),
+                    ("TASK_DATASET_NAME", "dataset"),
+                    ("TASK_BENCHMARK", "benchmark"),
                 ):
                     print(variable + "=" + shlex.quote(str(result[key])))
                 return 0

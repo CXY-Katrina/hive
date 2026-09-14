@@ -180,6 +180,7 @@ class WorkflowCreate(Input):
     resource: ResourceSpec | None = None
     space_id: str | None = None
     retain_minutes: int = Field(default=0, ge=0, le=10080)
+    runtime_variables: Literal['minimal'] = 'minimal'
     environments: list[Environment] = Field(default_factory=list, max_length=32)
     jobs: list[Job] = Field(min_length=1, max_length=64)
 

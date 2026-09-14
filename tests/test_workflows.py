@@ -390,7 +390,8 @@ class WorkflowHTTP(unittest.TestCase):
         self.assertEqual(actual['resource_mappings']['model']['org/weights'], '/mnt/models/weights')
         self.assertEqual(actual['mappings_version'], 1)
         scripts = [a['script'] for a in remote.attempts.values()]
-        self.assertTrue(any('export HIVE_NODE0_IP=10.0.0.1' in script and 'HIVE_RESOURCE_MAP_JSON=' in script and '/mnt/datasets/data' in script for script in scripts))
+        self.assertTrue(any('export HIVE_NODE0_IP=10.0.0.1' in script and 'hive_resource()' in script and '/mnt/datasets/data' in script for script in scripts))
+        self.assertTrue(all('export HIVE_RESOURCE_MAP_JSON=' not in script for script in scripts))
         self.assertTrue(all('server+base' not in event[1] for event in remote.events if event[0] == 'image-inspect'))
 
     def test_upload_bootstrap_uses_frozen_command_and_invalid_inputs_do_not_allocate(self):

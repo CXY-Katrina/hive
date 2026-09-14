@@ -24,8 +24,11 @@ class MultiRemote(Remote):
         self.unknown_host = None
         self.closed_hosts = []
         self.read_hosts = []
+        self.bootstrap_scripts = []
 
     def run(self, node, script, timeout=20):
+        if '# HIVE_BOOTSTRAP_RUN' in script:
+            self.bootstrap_scripts.append(script)
         if '>job.sh.upload' in script:
             encoded = re.search(r'printf %s (\S+) \| base64 --decode >job.sh.upload', script)[1]
             self.prepared.append((node['host'], base64.b64decode(encoded.strip("'")).decode()))
@@ -50,27 +53,37 @@ class MultiRemote(Remote):
 class MultiNodeHTTP(unittest.TestCase):
     def test_shell_and_python_jobs_receive_one_unified_environment_on_every_node(self):
         spec = self.multi()
-        service = spec['jobs'][0]
-        service.update(kind='service', ports=[8000], ready=[{'launch': 'true'}])
-        spec['jobs'].append({'id': 'client', 'environment': 'server_env', 'npu_count': 0,
-                            'depends_on': [{'job_id': 'first', 'condition': 'ready'}],
-                            'steps': [{'launch': 'echo "$HIVE_NODE0_IP $HIVE_NODEID $HIVE_JOB_FIRST_NODE0_ENDPOINT"'}]})
+        spec['runtime_variables'] = 'minimal'
+        spec['environments'].append({**copy.deepcopy(spec['environments'][0]),'alias':'aaa_client'})
+        for env in spec['environments']:
+            env['install'] = [{'launch':'printf "%s\\n" "$HIVE_CONTAINER0_NAME"'}]
+        spec['jobs'][0]['steps'] = [{'launch':'printf "%s\\n" "$HIVE_NODE0_IP $HIVE_CONTAINER0_NAME"'}]
+        spec['jobs'].append({'id':'client','environment':'aaa_client','npu_count':0,
+                            'depends_on':[{'job_id':'first','condition':'succeeded'}],
+                            'steps':[{'type':'python','path':'scripts/check.py'}]})
         remote = MultiRemote()
-        remote.hold_services = True
         task, space = self.start(spec, remote)
         self.advance(task, space)
-        clients = [(host, script) for host, script in remote.prepared
-                   if 'echo "$HIVE_NODE0_IP $HIVE_NODEID $HIVE_JOB_FIRST_NODE0_ENDPOINT"' in script]
-        self.assertEqual({host for host, script in clients}, {'10.0.0.1', '10.0.0.2'})
-        bindings = json.loads(self.db.one('SELECT runtime FROM workflow_spaces WHERE id=%s', (space['id'],))['runtime'])['bindings']
-        for host, script in clients:
-            alias = next(alias for alias, binding in bindings.items() if binding['host'] == host)
-            self.assertIn('export HIVE_JOB_NUM_NODES=2', script)
-            self.assertIn('export HIVE_NODEID=' + alias[4:], script)
-            self.assertIn('export HIVE_JOB_NODELIST=' + ','.join(bindings['node' + str(i)]['host'] for i in range(2)), script)
-            self.assertIn('export HIVE_JOB_FIRST_NODE0_ENDPOINT=http://' + bindings['node0']['host'] + ':8000', script)
-            self.assertIn('export HIVE_JOB_FIRST_NODE1_ENDPOINT=http://' + bindings['node1']['host'] + ':8000', script)
-            self.assertIn('export HIVE_TASK_ID=' + task['id'], script)
+        live = self.client.get('/api/spaces').json()[0]
+        lookup = {(env['logical_alias'],env['node_alias']):env for env in live['environments']}
+        names = [lookup[alias,node]['container_name'] for alias in ('server_env','aaa_client')
+                 for node in ('node0','node1')]
+        expected = {'HIVE_CONTAINER'+str(i)+'_NAME':name for i,name in enumerate(names)}
+        expected.update({'HIVE_NODE'+str(i)+'_IP':lookup['server_env','node'+str(i)]['host'] for i in range(2)})
+        scripts = [script for _,script in remote.prepared]+remote.bootstrap_scripts
+        for script in scripts:
+            if '# HIVE_BOOTSTRAP_RUN' in script:
+                script = shlex.split(script.split('timeout --signal=TERM --kill-after=5 45 bash -c ',1)[1])[0]
+            exports = dict(shlex.split(line)[1].split('=',1) for line in script.splitlines()
+                           if line.startswith('export HIVE_'))
+            for key,value in expected.items():
+                self.assertEqual(exports.get(key),value,(key,script[:200]))
+            allowed = set(expected)|{'HIVE_SOURCE_DIR'}
+            if re.search(r'# HIVE_PHASE (?:input|pre|steps|post|ready)\b',script):
+                allowed |= {'HIVE_TASK_ID','HIVE_JOB_ID'}
+                self.assertEqual(exports['HIVE_TASK_ID'],task['id'])
+            self.assertEqual(set(exports),allowed)
+            self.assertIn('export ASCEND_RT_VISIBLE_DEVICES=',script)
 
     setUpClass = classmethod(workflow_fixtures.WorkflowHTTP.setUpClass.__func__)
     tearDownClass = classmethod(workflow_fixtures.WorkflowHTTP.tearDownClass.__func__)
@@ -160,20 +173,37 @@ class MultiNodeHTTP(unittest.TestCase):
         steps = [(host, script) for host, script in remote.prepared if '# HIVE_PHASE steps' in script]
         self.assertEqual({host for host, _ in steps}, {'10.0.0.1', '10.0.0.2'})
         self.assertEqual(len(steps), 2)
+        environments = self.client.get('/api/spaces').json()[0]['environments']
+        by_node = {env['node_alias']:env for env in environments}
         for host, script in steps:
-            self.assertIn('export HIVE_HOST_IP=' + host, script)
-            self.assertIn('export HIVE_NODES_JSON=', script)
+            self.assertNotIn('export HIVE_HOST_IP=', script)
+            self.assertNotIn('export HIVE_NODES_JSON=', script)
             self.assertIn('export HIVE_NODE0_IP=', script)
             self.assertIn('export HIVE_NODE1_IP=', script)
-            declaration = next(line for line in script.splitlines() if line.startswith('export HIVE_NODES_JSON='))
-            bindings = json.loads(shlex.split(declaration)[1].split('=', 1)[1])
-            self.assertEqual([binding['node_alias'] for binding in bindings], ['node0', 'node1'])
-            self.assertEqual({binding['ip'] for binding in bindings}, {'10.0.0.1', '10.0.0.2'})
-        environments = self.client.get('/api/spaces').json()[0]['environments']
+            for index in range(2):
+                self.assertIn('export HIVE_NODE'+str(index)+'_IP='+by_node['node'+str(index)]['host'],script)
+                self.assertIn('export HIVE_CONTAINER'+str(index)+'_NAME='+by_node['node'+str(index)]['container_name'],script)
         self.assertEqual(len({env['container_name'] for env in environments}), 2)
         before = len(remote.containers)
         self.s.workflows.tick_space(space['id'])
         self.assertEqual(len(remote.containers), before)
+
+    def test_preexisting_unversioned_space_preserves_legacy_runtime_variables(self):
+        remote = MultiRemote()
+        task,space = self.start(self.multi(),remote)
+        # Emulate a persisted pre-upgrade row in the disposable test database.
+        prior = json.loads(self.db.one('SELECT spec FROM workflow_spaces WHERE id=%s',(space['id'],))['spec'])
+        prior.pop('runtime_variables',None)
+        with self.db.transaction() as cursor:
+            cursor.execute('UPDATE workflow_spaces SET spec=%s WHERE id=%s',(json.dumps(prior),space['id']))
+        self.advance(task,space)
+        scripts = [script for _,script in remote.prepared if '# HIVE_PHASE steps' in script]
+        self.assertEqual(len(scripts),2)
+        for script in scripts:
+            self.assertIn('export HIVE_CONTEXT_JSON=',script)
+            self.assertIn('export HIVE_RESOURCE_MAP_JSON=',script)
+            self.assertIn('export HIVE_HOST_IP=',script)
+            self.assertIn('export HIVE_CONTAINER_NAME=',script)
 
     def test_artifact_targets_select_exact_instances_once_and_job_node_subset_is_enforced(self):
         spec = self.multi()

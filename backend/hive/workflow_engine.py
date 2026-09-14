@@ -59,7 +59,8 @@ def render_steps(steps, env, context):
                         if '.' in key:
                             raise DomainError('未定义的任务参数: ' + key, 422)
                         return match[0]  # Ordinary shell variables belong to the script.
-                    name = 'HIVE_LAUNCH_PARAM_' + str(len(exports))
+                    prefix = '_HIVE_LAUNCH_PARAM_' if context.get('runtime_variables') == 'minimal' else 'HIVE_LAUNCH_PARAM_'
+                    name = prefix + str(len(exports))
                     exports.append('export ' + name + '=' + shlex.quote(str(launch_context[key])))
                     return '${' + name + '}'
                 command = re.sub(r'\$\{([A-Za-z_][A-Za-z0-9_.-]*)\}', launch_parameter, command)
@@ -195,9 +196,34 @@ class WorkflowEngine:
                            for alias, binding in sorted(space['runtime'].get('bindings', {}).items(),
                                                         key=lambda item: int(item[0][4:]))]
         result['resource_mappings'] = state.get('resource_mappings', {})
+        if space['spec'].get('runtime_variables') == 'minimal':
+            result['runtime_variables'] = 'minimal'
+            rows = self.db.all('SELECT alias,spec,runtime FROM workflow_environments WHERE space_id=%s',(space['id'],))
+            instances = {}
+            for row in rows:
+                definition, runtime = decode(row['spec']), decode(row['runtime'])
+                instances[definition.get('logical_alias',row['alias']),definition['node_alias']] = (
+                    runtime.get('container_name') or 'hive-'+space['id']+'-'+row['alias'])
+            result['containers'] = []
+            for definition in space['spec']['environments']:
+                nodes = definition.get('node_aliases') or [definition['node_alias']]
+                for alias in sorted(nodes,key=lambda value:int(value[4:])):
+                    key = (definition['alias'],alias)
+                    if key not in instances:
+                        raise DomainError('运行空间的容器实例映射不完整，不能生成稳定编号',503)
+                    result['containers'].append(instances[key])
         return result
 
     def variables(self, env, context, cards=()):
+        if context.get('runtime_variables') == 'minimal':
+            values = {key:value for key,value in env['spec']['environment'].items() if not key.startswith('HIVE_')}
+            values.update(HIVE_SOURCE_DIR=context['source_dir'],ASCEND_RT_VISIBLE_DEVICES=','.join(cards))
+            values.update({'HIVE_'+node['node_alias'].upper()+'_IP':node['ip'] for node in context['nodes']})
+            values.update({'HIVE_CONTAINER'+str(index)+'_NAME':name for index,name in enumerate(context['containers'])})
+            for key in ('task_id','job_id'):
+                if key in context:
+                    values['HIVE_'+key.upper()] = str(context[key])
+            return values
         values = {**env['spec']['environment'], 'HIVE_SOURCE_DIR': context['source_dir'],
                   'HIVE_CONTEXT_JSON': encode(context), 'HIVE_PACKAGES_JSON': encode(env['spec']['packages']),
                   'ASCEND_RT_VISIBLE_DEVICES': ','.join(cards),

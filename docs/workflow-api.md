@@ -40,7 +40,7 @@ Job timeout defaults to 600 seconds; the UI edits minutes. Ports remain a legacy
 
 Node resource mappings use `GET /api/nodes/{id}/mappings` and administrator `PUT {version,entries:[{kind,name,target}]}`. Kinds are model/dataset/image/package. NodeCreate optionally accepts mappings. First allocation freezes version and all entries per node; space environments expose resource_mappings, mappings_version and resolved_image. Image aliases resolve before local image inspection. Mapping edits do not mutate retained environments.
 
-Runtime exports HIVE_NODE0_IP (and other allocated nodes), HIVE_HOST_IP, HIVE_CONTAINER_NAME and HIVE_RESOURCE_MAP_JSON. Bash scripts can call `hive_resource kind name`; Python scripts read the JSON environment variable. Registered paths must be accessible through the external container startup's mounts.
+New submissions default to `runtime_variables:"minimal"`: only HIVE_SOURCE_DIR, indexed HIVE_NODE{n}_IP / HIVE_CONTAINER{n}_NAME, HIVE_TASK_ID and HIVE_JOB_ID are platform exports. Already-submitted spaces without this marker keep the legacy variable contract. Bash scripts can call `hive_resource kind name`; Python receives mapping results as explicit arguments. Registered paths must be accessible through the external container startup's mounts.
 
 Upload filename discovery uses GitHub's [Git trees API](https://docs.github.com/en/rest/git/trees#get-a-tree) at the fixed head SHA. Truncated trees are rejected rather than treating partial matches as unique.
 
@@ -50,7 +50,7 @@ Source resolution accepts `{pr,revision:"head"|"merged"}`; omitted revision defa
 
 Environment `node_aliases:["node0","node1"]` supersedes legacy node_alias; role is optional and is not shown in the composer. Job node_aliases optionally selects a subset of its environment nodes. Logical definitions remain in space/workflow spec; the scheduler compiles independent persisted environment/job instances. Dependencies form an all-instances barrier. Limits are 128 environment instances and 256 job instances. Detail responses add logical_environments/logical_jobs with grouped instance status, retaining flat instances for compatibility.
 
-Artifacts accept `targets:[{environment:"env0",node_alias:"node0"},{environment:"env0",node_alias:"node1"}]`, label and absolute path. Each selected environment/node target is archived once, with separate download identity. Each logical job has at most 16 path entries; expansion supports up to 2048 targets per instance, within byte limits. Runtime HIVE_NODES_JSON exposes all allocated nodes; explicit multi-node service placeholders include `${job0.node1.endpoint}`.
+Artifacts accept `targets:[{environment:"env0",node_alias:"node0"},{environment:"env0",node_alias:"node1"}]`, label and absolute path. Each selected environment/node target is archived once, with separate download identity. Each logical job has at most 16 path entries; expansion supports up to 2048 targets per instance, within byte limits. Indexed node/container variables expose the allocation; the UI lists their exact environment/node mapping. Legacy service placeholders remain accepted for old commands.
 
 Artifact absolute paths support `${HIVE_TASK_ID}` and `${HIVE_JOB_ID}` (also bare `$HIVE_TASK_ID`/`$HIVE_JOB_ID`, and legacy `${task_id}`/`${job_id}`), for example `/var/tmp/results/${task_id}/${job_id}/result.json`. The API resolves them to the task UUID and executing job instance ID before persisting runnable jobs; logical definitions retain the template for reuse. Unknown placeholders and duplicate resolved target paths are rejected before resource allocation. Commands must write files to the matching location; Hive does not generate business results.
 
@@ -68,10 +68,20 @@ Browser drafts use per-username IndexedDB and include uploaded text, source, res
 
 `GET /images/vllm-ascend/tags?page=1` requires login and returns `{tags:[{name,image,last_modified,manifest_digest}],page,has_more,repository}`. The API reads the official Quay repository, 50 tags/page, caches successful pages for five minutes, and returns 502 on upstream failure. Selecting a tag is read-only; any image pull occurs only during environment preparation.
 
-Reuse selects a READY space with actual host/container information, sends its fixed source commit and `environments:[]`, and chooses job environments from that space. UI retention defaults to 3 days, represented as `retain_minutes:4320` (0 releases after completion, maximum10080). Reuse updates the space's retention preference to the latest submission, with countdown starting only after all tasks finish.
+The composer always submits a new resource request with `retain_minutes:0` and no `space_id`. Reuse/retention fields remain only for compatibility with historical API clients and already-submitted spaces; no such choice is exposed in the UI.
 
 Every attachment can be edited. Identical names must have identical content throughout one submission. Archive helpers record `base_sha256`, `modified`, `origin` and the actual `sha256`; a personal variant preserves the edited bytes on reload. Each step supports `launch` plus its files; execution resolves from a task-specific checkout, not the mutable UI draft.
 
 New commands use `HIVE_` environment variables in Shell/Python. See [workflow variables](workflow-variables.md). Job IDs whose normalized variable names collide are rejected. Old platform placeholders remain supported.
 
 Omitted artifact targets resolve to every node in the job environment. Explicit targets select environment/node pairs; the UI labels them with server/container details. Directory artifacts are streamed tar.gz downloads, preserving relative paths. File limit4MiB; each directory is limited to256MiB unpacked/compressed and10000 entries; each job instance's aggregate cap512MiB. Symlinks and special files are rejected. Download metadata includes `format`, `download_name`, `media_type`, `unpacked_size` and `entry_count`. Completed archive conflicts fail the job without overwriting saved evidence; unknown remote identity/transport remains retryable.
+
+## Simplified composer (2026-09-14, supersedes lifecycle options above)
+
+New tasks always allocate environments and release them after all jobs and cleanup finish. Tabs and graph nodes use job1/job2/job3, independent of business purpose. Historical draft IDs remain internally stable so their old command references are not silently rewritten.
+
+The five public variable groups are documented in [workflow variables](workflow-variables.md). Container numbering follows environment order and numeric node order, globally consistent across all jobs. No endpoint/host/port/image/source-SHA JSON variables are introduced for new tasks; business scripts own those settings.
+
+Task files are listed visibly in the composer and are editable, with same-name edits synchronized. The Qwen3 preset shares one task.sh across stages instead of many wrapper scripts. Old drafts without script attachments display an explicit reload notice; restoration recovers missing job environments but does not overwrite edited commands.
+
+`post` is labeled “执行后检查”: a script that runs after the main commands, with nonzero exit failing the job. It is not a manual approval gate. Service `ready` checks are separate and unblock downstream jobs only after service readiness succeeds.

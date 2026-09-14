@@ -4,7 +4,7 @@ import { useQuery } from '../hooks';
 import type { User } from '../types';
 import type { WorkflowRun, WorkflowSpace } from '../workflowTypes';
 import { Badge, dateTime, Empty, ErrorNotice, Loading, Modal, shortId } from './ui';
-import { WorkflowEvidence } from './WorkflowEvidence';
+import { WorkflowEvidence, workflowPhaseLabel } from './WorkflowEvidence';
 import { WorkflowGraph } from './WorkflowGraph';
 
 const terminal = ['SUCCEEDED', 'FAILED', 'CANCELLED', 'CLOSED', 'EXPIRED'];
@@ -48,6 +48,6 @@ function WorkflowDetail({ initial, onClose }: { initial: WorkflowRun; onClose: (
   const query = useQuery<WorkflowRun>(`/workflows/${initial.id}`, 5000);
   const run = query.data || initial;
   return <Modal title={`${run.name} · 任务详情`} onClose={onClose} wide><div className="modal-body"><ErrorNotice text={query.error} /><div className="workflow-row-heading"><Badge {...runStatus(run)} /><small className="muted">每 5 秒刷新 · #{shortId(run.id)}</small></div><PendingStatus status={run.status} />{run.reason && <p className="record-reason">{run.reason}</p>}<dl className="detail-list source-snapshot"><dt>执行代码 SHA</dt><dd><code>{run.spec?.source?.head_sha || '待固定'}</code></dd><dt>匹配 vLLM SHA</dt><dd><code>{run.spec?.source?.vllm_sha || '待固定'}</code></dd><dt>开始 / 结束</dt><dd>{dateTime(run.started_at)} / {dateTime(run.finished_at)}</dd></dl>{run.spec?.jobs?.length > 0 && <WorkflowGraph jobs={run.spec.jobs} readOnly />}
-    {run.jobs?.length ? run.jobs.map(job => <section className="workflow-job-run" key={job.id}><div className="record-heading"><h3>{job.name || job.id}</h3><Badge value={job.status} label={job.status === 'SUCCEEDED' ? '执行成功' : undefined} /></div><p className="muted small">作业 {job.logical_job_id || job.id}{job.node_alias && ` · ${job.node_alias}`} · 阶段 {job.phase || '待执行'}{job.exit_code != null && ` · 退出码 ${job.exit_code}`}</p><PendingStatus status={job.status} job />{job.reason && <p className="record-reason">{job.reason}</p>}{job.endpoint && <p>服务地址：<code>{typeof job.endpoint === 'string' ? job.endpoint : JSON.stringify(job.endpoint)}</code></p>}<WorkflowEvidence workflowId={run.id} job={job} /></section>) : <Empty title="作业等待调度" detail="环境准备完成后，在这里查看各阶段状态及独立日志。" />}
+    {run.jobs?.length ? run.jobs.map(job => <section className="workflow-job-run" key={job.id}><div className="record-heading"><h3>{job.name || job.id}</h3><Badge value={job.status} label={job.status === 'SUCCEEDED' ? '执行成功' : undefined} /></div><p className="muted small">作业 {job.logical_job_id || job.id}{job.node_alias && ` · ${job.node_alias}`} · 阶段 {workflowPhaseLabel(job.phase)}{job.exit_code != null && ` · 退出码 ${job.exit_code}`}</p><PendingStatus status={job.status} job />{job.reason && <p className="record-reason">{job.reason}</p>}{job.endpoint && <p>服务地址：<code>{typeof job.endpoint === 'string' ? job.endpoint : JSON.stringify(job.endpoint)}</code></p>}<WorkflowEvidence workflowId={run.id} job={job} /></section>) : <Empty title="作业等待调度" detail="环境准备完成后，在这里查看各阶段状态及独立日志。" />}
   </div></Modal>;
 }
