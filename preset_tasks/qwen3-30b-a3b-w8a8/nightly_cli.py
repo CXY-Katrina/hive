@@ -29,7 +29,7 @@ verify_performance = _config.verify_performance
 
 def select_case(path, case_name, benchmark):
     document = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    cases = [case for case in document["test_cases"] if case["name"] == case_name]
+    cases = [case for case in document["test_cases"] if not case_name or case["name"] == case_name]
     if len(cases) != 1:
         raise ValueError("Select exactly one named test case")
     case = cases[0]
@@ -295,6 +295,8 @@ def locate_results(args, config):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_subparsers(dest="action", required=True)
+    parameters_parser = actions.add_parser("parameters", help="Read editable case/model/dataset parameters from YAML")
+    parameters_parser.add_argument("--format", choices=("json", "shell"), default="json")
     prepare_parser = actions.add_parser("prepare", help="Write private AISBench configuration; never execute it")
     prepare_parser.add_argument("--benchmark-home", required=True)
     prepare_parser.add_argument("--output-dir", required=True)
@@ -317,16 +319,39 @@ def main(argv=None):
     locate_parser.add_argument("--manifest", required=True)
     locate_parser.add_argument("--log", required=True)
     locate_parser.add_argument("--output-dir", required=True)
-    for action in (prepare_parser, server_parser, verify_parser, locate_parser):
+    for action in (prepare_parser, server_parser, verify_parser, locate_parser, parameters_parser):
         action.add_argument("--config", required=True)
-        action.add_argument("--case", required=True)
+        action.add_argument(
+            "--case", default="" if action is parameters_parser else None, required=action is not parameters_parser
+        )
         action.add_argument("--benchmark", default="perf")
     args = parser.parse_args(argv)
     try:
         case, config = select_case(args.config, args.case, args.benchmark)
         if hasattr(args, "port") and not 1 <= args.port <= 65535:
             raise ValueError("Port must be between 1 and 65535")
-        if args.action == "prepare":
+        if args.action == "parameters":
+            result = {
+                "case": case["name"],
+                "model": case["model"],
+                "dataset": config["dataset_path"],
+                "benchmark": args.benchmark,
+                "num_prompts": config.get("num_prompts"),
+                "batch_size": config.get("batch_size"),
+                "max_out_len": config.get("max_out_len"),
+                "baseline": config.get("baseline"),
+                "threshold": config.get("threshold", 0.97),
+            }
+            if args.format == "shell":
+                for variable, key in (
+                    ("HIVE_CASE", "case"),
+                    ("HIVE_MODEL_NAME", "model"),
+                    ("HIVE_DATASET_NAME", "dataset"),
+                    ("HIVE_BENCHMARK", "benchmark"),
+                ):
+                    print(variable + "=" + shlex.quote(str(result[key])))
+                return 0
+        elif args.action == "prepare":
             result = prepare(args, case, config)
         elif args.action == "server-command":
             result = server_command(args, case, config)

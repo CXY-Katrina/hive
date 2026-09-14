@@ -10,6 +10,7 @@ from pathlib import PurePosixPath
 from .container_runtime import ContainerRuntime
 from .workflow_logs import LogArchive
 from .workflow_artifacts import WorkflowArtifacts, artifact_key
+from .workflow_images import resolve_image, pull_pending
 from .domain import DomainError, SYSTEM, now, encode, decode
 
 FINAL = {'SUCCEEDED', 'FAILED', 'CANCELLED', 'SKIPPED'}
@@ -203,9 +204,17 @@ class WorkflowEngine:
                   'HIVE_RESOURCE_MAP_JSON': encode(env['runtime'].get('resource_mappings', {})),
                   'HIVE_HOST_IP': context['host'], 'HIVE_CONTAINER_NAME': context['container_name'],
                   'HIVE_NODES_JSON': encode(context['nodes'])}
+        for key in ('space_id', 'node_alias', 'image', 'ascend_sha', 'vllm_sha', 'task_id', 'job_id', 'port', 'endpoint'):
+            if key in context:
+                values['HIVE_' + key.upper()] = str(context[key])
+        values['HIVE_NODEID'] = context['node_alias'][4:]
+        values['HIVE_JOB_NODELIST'] = ','.join(node['ip'] for node in context['nodes'])
+        values['HIVE_JOB_NUM_NODES'] = str(len(context['nodes']))
         for key, value in context.items():
             if re.fullmatch(r'node[0-9]+\.ip', key):
                 values['HIVE_' + key.replace('.', '_').upper()] = value
+            elif re.fullmatch(r'[A-Za-z0-9_.-]+\.(endpoint|host|port)', key) and not re.fullmatch(r'node[0-9]+\.host', key):
+                values['HIVE_JOB_' + re.sub(r'[^A-Za-z0-9]', '_', key).upper()] = str(value)
         return values
 
     def prepare_environment(self, space, env):
@@ -223,7 +232,28 @@ class WorkflowEngine:
             result = self.s.transport.run(node, inspect)
             fields = result.stdout.split()
             if result.code or len(fields) != 2 or not re.fullmatch('sha256:[0-9a-f]{64}', fields[0]) or not re.fullmatch('[0-9a-f]{64}', fields[1]):
-                raise DomainError('启动脚本或本地镜像无法核验', 503)
+                try:
+                    resolved = resolve_image(self.s.transport,node,image,state['boot_id'],state,lambda:self.save_env(env))
+                except DomainError as error:
+                    if error.code != 422:
+                        raise
+                    env.update(status='FAILED',reason=str(error))
+                    self.save_env(env)
+                    return
+                # Cancellation may arrive while the bounded pull is in progress.
+                current = self.db.one('SELECT status FROM workflow_spaces WHERE id=%s',(space['id'],))
+                active = self.db.one("SELECT id FROM workflows WHERE space_id=%s AND cancel_requested=FALSE AND status NOT IN ('SUCCEEDED','FAILED','CANCELLED') LIMIT 1",(space['id'],))
+                if current['status'] == 'CLOSING' or not active:
+                    return
+                inspect = inspect.replace(' -- '+shlex.quote(image)+'\n',' -- '+shlex.quote(resolved)+'\n',1)
+                result = self.s.transport.run(node,inspect)
+                fields = result.stdout.split()
+                if result.code or len(fields) != 2 or not re.fullmatch('sha256:[0-9a-f]{64}',fields[0]) or not re.fullmatch('[0-9a-f]{64}',fields[1]):
+                    env.update(status='FAILED',reason='启动脚本或拉取后的本地镜像无法核验')
+                    self.save_env(env)
+                    return
+            if state.get('image_pull'):
+                state['image_pull'].update(status='COMPLETED',image_id=fields[0])
             state.update(image_id=fields[0], bootstrap_sha=fields[1], bootstrap_intent=True,
                          bootstrap_deadline=(now() + timedelta(seconds=75)).isoformat())
             env['status'] = 'BOOTSTRAPPING'
@@ -404,7 +434,7 @@ class WorkflowEngine:
                     state.setdefault('failure', '外部结果判定失败')
                 state['artifacts_collected'] = True
             except DomainError as exc:
-                if exc.code != 422:
+                if exc.code not in {409,422}:
                     raise
                 state.setdefault('failure', str(exc))
                 state['artifacts'] = []
@@ -497,6 +527,9 @@ class WorkflowEngine:
             state = env['runtime']
             if env['status'] == 'STOPPED':
                 continue
+            # An interrupted pull gets its full ten-minute bound plus safety buffer.
+            if pull_pending(state):
+                raise DomainError('镜像拉取尚未确认结束；取消后等待最多 10 分钟加安全缓冲再归还资源',503)
             if state.get('bootstrap_intent') and not state.get('identity') and not state.get('bootstrap_absent'):
                 if state.get('bootstrap_deadline', '9999') <= now().isoformat() and self.bootstrap_absent(self.s.inventory.connection(state['node_id']), state):
                     state['bootstrap_absent'] = True
@@ -639,11 +672,26 @@ class WorkflowEngine:
             with self.db.transaction() as c:
                 c.execute('UPDATE workflows SET status=%s,started_at=COALESCE(started_at,%s),ended_at=%s WHERE id=%s', (status, now(), now() if finished else None, task['id']))
         if all(t['status'] in FINAL for t in tasks):
-            retention = space['spec']['retain_minutes']
-            if closing or failed_environment or not retention:
-                self.close_space(space, envs)
-            elif space['retain_until'] is None:
-                with self.db.transaction() as c:
-                    c.execute('UPDATE workflow_spaces SET retain_until=%s WHERE id=%s', (now() + timedelta(minutes=retention), space_id))
-            elif space['retain_until'] <= now():
+            # A submission may have joined while remote completion was being checked.
+            # Share the submission lock before deciding this space is still idle.
+            should_close = False
+            with self.db.transaction() as c:
+                c.execute('SELECT status,spec,retain_until FROM workflow_spaces WHERE id=%s FOR UPDATE', (space_id,))
+                current = c.fetchone()
+                if not current or current['status'] == 'CLOSED':
+                    return
+                c.execute("SELECT id FROM workflows WHERE space_id=%s AND status NOT IN ('SUCCEEDED','FAILED','CANCELLED','SKIPPED') LIMIT 1 FOR UPDATE", (space_id,))
+                if c.fetchone():
+                    return
+                retention = decode(current['spec'])['retain_minutes']
+                instant = now()
+                should_close = (closing or failed_environment or current['status'] == 'CLOSING'
+                                or not retention or (current['retain_until'] is not None
+                                                     and current['retain_until'] <= instant))
+                if should_close:
+                    c.execute("UPDATE workflow_spaces SET status='CLOSING' WHERE id=%s", (space_id,))
+                elif current['retain_until'] is None:
+                    c.execute('UPDATE workflow_spaces SET retain_until=%s WHERE id=%s',
+                              (instant + timedelta(minutes=retention), space_id))
+            if should_close:
                 self.close_space(space, envs)

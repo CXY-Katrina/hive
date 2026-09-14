@@ -90,15 +90,17 @@ class Workflows:
                 return
             file = archive.file(path, uploaded)
             if file is not None:
+                if previous and previous['sha256'] != file['sha256']:
+                    raise DomainError('同一任务中的文件路径对应不同内容，请同步同名脚本', 422)
                 spec['files'][path] = file
                 return
             file = self.sources.file(resolved, path)
             if uploaded is not None:
-                if not config and uploaded != file['content']:
-                    raise DomainError('上传执行代码与 PR 不一致，请先提交 PR', 422)
-                if config:
-                    file = {**file, 'content': uploaded, 'sha256': hashlib.sha256(uploaded.encode()).hexdigest(),
-                            'size': len(uploaded.encode()), 'uploaded': True}
+                modified = uploaded != file['content']
+                file = {**file, 'base_sha256': file['sha256'], 'modified': modified,
+                        'origin': 'user_upload' if modified else 'upstream',
+                        'content': uploaded, 'sha256': hashlib.sha256(uploaded.encode()).hexdigest(),
+                        'size': len(uploaded.encode()), 'uploaded': True}
             previous = spec['files'].get(path)
             if previous and previous['sha256'] != file['sha256']:
                 raise DomainError('同一任务中的文件路径对应不同内容', 422)
@@ -156,7 +158,11 @@ class Workflows:
                     self.authorize(space, actor)
                     if space['status'] in {'CLOSING', 'CLOSED', 'FAILED'}:
                         raise DomainError('运行空间正在关闭')
-                    c.execute('UPDATE workflow_spaces SET retain_until=NULL WHERE id=%s', (space_id,))
+                    # The latest submitted preference applies once every task finishes.
+                    retained_spec = decode(space['spec'])
+                    retained_spec['retain_minutes'] = spec['retain_minutes']
+                    c.execute('UPDATE workflow_spaces SET spec=%s,retain_until=NULL WHERE id=%s',
+                              (encode(retained_spec), space_id))
                 else:
                     request = self.resources.create(actor, spec['resource'], 'workflow:' + space_id, purpose='task', cursor=c)
                     c.execute('INSERT INTO workflow_spaces (id,request_id,owner_user_id,owner_name,status,spec,runtime,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
@@ -314,4 +320,5 @@ def register_workflow_routes(app, services, current, respond):
         from .workflow_artifacts import WorkflowArtifacts
         services.workflows.get(task_id, actor)
         saved = WorkflowArtifacts(None, services.settings.data_dir).read(task_id, job_id, artifact_id)
-        return FileResponse(saved['path'], media_type='application/octet-stream', filename='artifact-' + artifact_id[:12])
+        return FileResponse(saved['path'], media_type=saved['metadata'].get('media_type', 'application/octet-stream'),
+                            filename=saved['metadata'].get('download_name', 'artifact-' + artifact_id[:12]))

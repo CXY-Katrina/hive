@@ -21,6 +21,52 @@ CASE = "Qwen3-30B-A3B-W8A8-TP1"
 
 
 class NightlyCLITest(unittest.TestCase):
+    def test_edited_case_yaml_controls_discoverable_names_and_actual_benchmark_parameters(self):
+        document = yaml.safe_load(CONFIG.read_text())
+        case = document["test_cases"][0]
+        case["name"] = "edited-case"
+        case["model"] = "team/edited-model"
+        case["benchmarks"]["perf"].update(dataset_path="team/edited-data", batch_size=7, num_prompts=23)
+        edited = self.root / "edited.yaml"
+        edited.write_text(yaml.safe_dump(document))
+        parameters = self.cli("parameters", "--config", edited, "--case", "")
+        self.assertEqual(parameters.returncode, 0, parameters.stderr)
+        values = json.loads(parameters.stdout)
+        self.assertEqual(
+            (values["case"], values["model"], values["dataset"]),
+            ("edited-case", "team/edited-model", "team/edited-data"),
+        )
+        shell = self.cli("parameters", "--config", edited, "--case", "", "--format", "shell")
+        self.assertEqual(shell.returncode, 0, shell.stderr)
+        self.assertIn("HIVE_CASE=edited-case", shell.stdout)
+        self.assertIn("HIVE_MODEL_NAME=team/edited-model", shell.stdout)
+        output = self.root / "edited-output"
+        result = self.cli(
+            "prepare",
+            "--config",
+            edited,
+            "--case",
+            values["case"],
+            "--benchmark-home",
+            self.benchmark,
+            "--output-dir",
+            output,
+            "--model-path",
+            "/models/edited",
+            "--dataset-path",
+            "/data/edited",
+            "--host",
+            "192.0.2.8",
+            "--port",
+            "18123",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        namespace = {}
+        exec((output / "benchmark.py").read_text(), namespace)
+        self.assertEqual(namespace["models"][0]["batch_size"], 7)
+        argv = json.loads(result.stdout)["argv"]
+        self.assertEqual(argv[argv.index("--num-prompts") + 1], "23")
+
     def test_archived_cli_can_be_imported_without_upstream_tools_or_sys_path_changes(self):
         spec = importlib.util.spec_from_file_location("isolated_preset_cli", ROOT / "nightly_cli.py")
         module = importlib.util.module_from_spec(spec)

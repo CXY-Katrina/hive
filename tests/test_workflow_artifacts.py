@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from hive.container_runtime import ContainerRuntime
 from hive.domain import DomainError
@@ -64,7 +65,7 @@ class WorkflowArtifactTests(unittest.TestCase):
     def test_traversal_excess_count_and_network_failure_do_not_fabricate_artifacts(self):
         archive = self.archive()
         for task,job,items in (('../task','job',[]),('task','../job',[]),
-                               ('task','job',[{'path':'/out','label':'x','kind':'file'}]*17)):
+                               ('task','job',[{'path':'/out','label':'x','kind':'file'}]*2049)):
             with self.assertRaises(DomainError):
                 archive.collect(NODE,IDENTITY,task,job,items)
         self.assertEqual(self.ssh.calls,[])
@@ -91,7 +92,7 @@ class WorkflowArtifactTests(unittest.TestCase):
         raw = b'x'*(4*1024*1024)
         outputs = [response(raw,raw[i*1024*1024:(i+1)*1024*1024]) for _ in range(5) for i in range(4)]
         archive = WorkflowArtifacts(ContainerRuntime(SSH(*outputs)),Path(self.directory.name))
-        with self.assertRaises(DomainError):
+        with patch('hive.workflow_artifacts.MAX_TOTAL',16*1024*1024), self.assertRaises(DomainError):
             archive.collect(NODE,IDENTITY,'task','job',[{'path':f'/out{i}','label':str(i),'kind':'file'} for i in range(5)])
 
     def test_local_archive_symlink_escape_is_rejected(self):

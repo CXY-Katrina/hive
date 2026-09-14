@@ -1,122 +1,130 @@
-# Qwen3-30B-A3B-W8A8 预置任务接入脚本
+# Qwen3-30B-A3B-W8A8 可编辑预置任务
 
-本目录归档这一预置任务自己的接入脚本，由 `admin` 创建。执行来源是
-[上游原始提交 d4d2957](https://github.com/vllm-project/vllm-ascend/tree/d4d2957e5208c2f464d4625c05920bd29ea233cb)
-及其中的 `tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml`。
-不依赖外部 PR 新增的 `tools` 文件，也不修改上游源码。固定来源、YAML 哈希和文件清单见
-[source.json](source.json)。其他预置任务应使用自己的归档目录。
+每个阶段的命令都放在本目录的具名脚本中，并通过 `step.files` 展示为可编辑附件。
+`launch` 只负责调用附件，例如：
 
-## 文件与执行边界
+```bash
+bash "$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/serve_prepare.sh"
+```
 
-| 文件 | 用途 |
+所有附件（Shell、Python、YAML）均可在载入后的任务或个人副本中修改。每次提交由平台捕获实际
+上传内容和哈希，保留本次执行依据；不需要修改上游仓库或创建外部 PR。
+
+## 默认来源和 YAML 附件
+
+载入公共预置时，先解析上游 `vllm-project/vllm-ascend` 的 **main** 为固定提交，再取得该提交的：
+
+`tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml`
+
+前端将本次取得的原始 YAML 填入同名附件。获取失败时不应提交，也不能静默使用历史快照。
+个人副本保留用户编辑过的 YAML。执行脚本始终读取本次 `HIVE_SOURCE_DIR` 下这个原路径，支持
+上传文件覆盖；不读取本目录的 `case.yaml` 作为执行回退。
+
+[source.json](source.json) 和 [case.yaml](case.yaml) 保存最初上游
+`d4d2957e5208c2f464d4625c05920bd29ea233cb` 的来源证据与原始字节。`input_files` 将原上游
+路径映射到该历史快照，`default_ref: main` 声明公共预置默认来源；历史 SHA 不代表新执行的 SHA。
+环境准备使用平台提供的 `HIVE_ASCEND_SHA` / `HIVE_VLLM_SHA` 校验本次 checkout。
+
+## 修改测试参数
+
+在服务准备、AISBench 准备或校验准备步骤中打开原 YAML 附件。同名附件必须使用一致内容。
+编辑单个 `test_cases` 条目即可；以下字段直接参与执行，不是展示标签：
+
+| YAML 字段 | 实际作用 |
 |---|---|
-| `nightly_environment.py` | 检查上游提交、准备服务端或客户端环境、记录真实运行时和依赖审计 |
-| `nightly_cli.py` | 从原 YAML 生成服务命令和 AISBench 配置；定位、归档及校验已存在的结果 |
-| `aisbench_config.py` | 本任务独立保存的配置渲染和性能阈值校验函数 |
-| `source.json` | 创建者、上游提交、YAML、AISBench 提交与上传前缀 |
-| `tests/fixtures/upstream/` | 从固定 Git 对象读取的原始测试夹具；生产执行读取实际上游 checkout |
-| `LICENSE` | 渲染与校验代码来源的 Apache-2.0 许可 |
+| `test_cases[].name` | case 名称；只有一个 case 时自动选择 |
+| `test_cases[].model` | 查找节点上的 `model` 资源映射，并作为服务模型名称 |
+| `test_cases[].benchmarks.perf.dataset_path` | 查找节点上的 `dataset` 资源映射 |
+| `test_cases[].server_cmd` | 原生 `vllm serve` 参数列表，可改 TP、最大模型长度、批处理 tokens、最大序列数等 |
+| `test_cases[].envs` | 服务环境变量，保留 YAML 中的原值 |
+| `test_cases[].benchmarks.perf.batch_size` | AISBench 并发数 |
+| `test_cases[].benchmarks.perf.num_prompts` | 实际请求数 |
+| `test_cases[].benchmarks.perf.max_out_len` | 每个请求最大输出长度 |
+| `test_cases[].benchmarks.perf.request_rate` | 请求发送速率 |
+| `test_cases[].benchmarks.perf.baseline` / `threshold` | 结果校验使用的基线与阈值 |
 
-运行时将三个 Python 文件按原字节上传到上游 checkout 内的隔离目录
-`hive_presets/qwen3-30b-a3b-w8a8/`，不覆盖上游文件。脚本支持直接通过绝对路径执行和独立导入。
-生成的 `verify.sh` 也调用同一归档脚本的绝对路径。
-
-Hive 负责节点、容器、作业依赖、超时、日志和产物。服务作业前台执行 `vllm serve`，客户端作业
-前台执行原生 `ais_bench`，最后单独校验结果。配置生成与结果校验不启动服务、请求或
-`AisbenchRunner`，不调用 pytest 包装入口。
-
-## 依赖
-
-- 配置生成和结果校验：Python 3.11+、PyYAML；其余为 Python 标准库。
-- 环境准备：Python、Bash、Git；采用私有环境安装时还需要 Python `venv`、pip。
-- 服务端镜像：已有可导入并运行 CLI 的 vLLM、vLLM Ascend、Torch、Torch NPU，以及已安装的
-  CANN/ATB 环境。镜像复用模式不安装、克隆或编译服务端运行时。
-- 客户端：固定 AISBench `0da56eadb2ac85c31c2540f4f5b69af3ec5717a5` 的 API 依赖。共享
-  AISBench 仓库只作为 Git 对象来源，脚本将其克隆到私有目录，忽略并记录共享工作区修改。
-- 可选的 `--install-client-dependencies` 在私有 `venv --system-site-packages` 中补齐依赖，
-  复用镜像的 Torch/NumPy/NPU 栈，约束已有受保护包和 Transformers；只在私有环境使用
-  OpenCV 4.11.0.86、Pillow 11.2.1。没有该开关时，缺少依赖直接失败。
-
-镜像复用报告明确区分请求的上游提交与实际导入的镜像版本、路径、Git 提交、修改状态和
-已跟踪修改的哈希。它不代表上游请求版本已安装，也不宣称完整依赖可解。原镜像包必须保持不变。
-客户端只允许一个有证据的新增依赖例外：`vllm 0.28.0+empty` 要求 OpenCV >=4.13.0，而本 HTTP
-客户端使用私有 OpenCV 4.11.0.86；客户端不运行 vLLM。报告保留完整例外及原因，其他新增或恶化
-的冲突仍会失败。
-
-## 命令约定
-
-下面的 `SOURCE_DIR` 是固定上游 checkout，`RUN_DIR`、`DEP_DIR` 是本次任务自己的绝对目录。
-节点 IP、权重、数据集和现有 AISBench 仓库路径由任务资源映射提供，不写死在脚本中。
+更改 TP 时，也应调整服务 job 的 `npu_count`，保证分配卡数足够。模型和数据集名称需要存在于
+所选节点的资源映射。多个 case 时设置 `HIVE_CASE` 明确选择；默认单 case 无需硬编码名称。
+`HIVE_BENCHMARK` 默认为 `perf`。可通过纯读取入口查看 YAML 生效参数：
 
 ```bash
-SCRIPTS_DIR="$SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8"
-YAML="$SOURCE_DIR/tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml"
-CASE=Qwen3-30B-A3B-W8A8-TP1
-
-python "$SCRIPTS_DIR/nightly_environment.py" \
-  --source-root "$SOURCE_DIR" \
-  --source-commit d4d2957e5208c2f464d4625c05920bd29ea233cb \
-  --role server --runtime-mode image-reuse \
-  --vllm-sha "$(cat "$SOURCE_DIR/.github/vllm-main-verified.commit")" \
-  --dep-dir "$DEP_DIR"
-source "$DEP_DIR/activate.sh"
+python3 "$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/nightly_cli.py" parameters \
+  --config "$HIVE_SOURCE_DIR/tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml"
 ```
 
-客户端在自己的容器中使用 `--role client`，添加 `--benchmark-source "$AISBENCH_REPOSITORY"`；
-需要补齐依赖时显式添加 `--install-client-dependencies`。默认 `source-install` 流程仍保留，
-本预置的镜像复用流程必须显式指定 `image-reuse`。准备目录必须尚不存在。
+该入口还支持 `--format shell`，只输出四个固定名称、经安全引用的变量赋值。
+`common.sh` 先检查读取命令成功，再加载这些赋值。没有历史默认参数回退。
 
-服务作业：
+## 可见脚本与调用关系
 
-```bash
-python "$SCRIPTS_DIR/nightly_cli.py" server-command \
-  --config "$YAML" --case "$CASE" --benchmark perf \
-  --model-path "$MODEL_PATH" --host 0.0.0.0 --port "$SERVER_PORT" \
-  --output-dir "$RUN_DIR/server"
-cd /var/tmp
-exec bash "$RUN_DIR/server/server.sh"
-```
+| 阶段 | 主要附件 |
+|---|---|
+| 创建两个环境 | `bootstrap.sh` |
+| 服务端安装 / 核验 | `install_server.sh`、`verify_server_environment.sh` |
+| 客户端安装 / 核验 | `install_client.sh`、`verify_client_environment.sh` |
+| 服务准备 / 执行 / 就绪 | `serve_prepare.sh`、`serve.sh`、`serve_ready.sh` |
+| AISBench 准备 / 执行 | `aisbench_prepare.sh`、`aisbench.sh` |
+| 结果定位 / 校验 | `verify_prepare.sh`、`verify.sh` |
+| 共用路径与 YAML 读取 | `common.sh` |
+| 环境准备、配置生成、阈值逻辑 | `nightly_environment.py`、`nightly_cli.py`、`aisbench_config.py` |
 
-服务就绪后，客户端作业：
+服务作业最终前台执行原生 `vllm serve`；客户端前台执行原生 `ais_bench`。流水线通过
+`set -euo pipefail` 保留 AISBench 失败退出码，即使 `tee` 写日志成功也不会掩盖失败。
+配置生成不启动服务、压测或 `AisbenchRunner`，不调用 pytest 包装入口。
 
-```bash
-python "$SCRIPTS_DIR/nightly_cli.py" prepare \
-  --config "$YAML" --case "$CASE" --benchmark perf \
-  --benchmark-home "$DEP_DIR/benchmark" \
-  --model-path "$MODEL_PATH" --dataset-path "$DATASET_PATH" \
-  --host "$SERVER_IP" --port "$SERVER_PORT" --output-dir "$RUN_DIR/client"
-cd /var/tmp
-set -euo pipefail
-bash "$RUN_DIR/client/benchmark.sh" 2>&1 | tee "$RUN_DIR/client/benchmark.log"
-```
+## 平台变量与本任务设置
 
-`benchmark.py` 包含完整的模型、数据集和固定 AISBench 官方性能 summarizer 配置。原 YAML 中
-TP=1、180 个请求、并发 45、最大输出 1500、基线 812.3394 和阈值 0.97 保持原样。
-GSM8K 单文件映射会按原字节复制到私有 `train.jsonl` / `test.jsonl`，不修改共享数据。
+脚本统一使用平台提供的变量，不混用 `${host}`、`${node0.ip}` 或 `${serve.host}` 模板：
 
-独立结果归档与校验作业：
+- `HIVE_SOURCE_DIR`、`HIVE_ASCEND_SHA`、`HIVE_VLLM_SHA`：本次固定源码和版本。
+- `HIVE_TASK_ID`、`HIVE_JOB_ID`：实际任务和 job。
+- `HIVE_HOST_IP`、`HIVE_CONTAINER_NAME`、`HIVE_IMAGE`：当前节点、容器和解析后的镜像。
+- `HIVE_PORT`：服务 job 的已分配端口。
+- `HIVE_JOB_SERVE_NODE0_HOST`、`HIVE_JOB_SERVE_NODE0_PORT`、`HIVE_JOB_SERVE_NODE0_ENDPOINT`：
+  node0 上 `serve` job 的实际服务地址；客户端不写死节点 IP。
 
-```bash
-python "$SCRIPTS_DIR/nightly_cli.py" locate-results \
-  --config "$YAML" --case "$CASE" --benchmark perf \
-  --manifest "$RUN_DIR/client/manifest.json" --log "$RUN_DIR/client/benchmark.log" \
-  --output-dir "$RUN_DIR/collected"
-exec bash "$RUN_DIR/collected/verify.sh"
-```
+本任务还支持可编辑设置：`HIVE_CASE`、`HIVE_BENCHMARK`、`HIVE_CASE_YAML`、
+`HIVE_BOOTSTRAP_SCRIPT`。默认启动脚本路径为 `/mnt/share/c00814587/start-docker-A3.sh`，可在
+环境变量或 `bootstrap.sh` 附件中修改。服务端/客户端依赖目录默认分别为
+`/opt/hive-nightly-deps/server`、`/opt/hive-nightly-deps/client`，输出默认
+`/var/tmp/hive-nightly/$HIVE_TASK_ID`；若更改这些路径，也应同步修改产物路径。
 
-定位只接受本次日志中的唯一结果目录，并限定在本任务私有 `work_dir` 内。原始 JSON/CSV
-按字节复制，记录原路径和 SHA256。定位成功不代表 AISBench 进程成功；Hive 必须保留实际退出码。
-校验退出码为 0（通过）、1（性能阈值失败）、2（输入或结果无效），`python -O` 同样执行阈值检查。
+## 环境依赖和实际版本
 
-## 测试与来源
+- 配置生成、参数读取和校验需要 Python 3.11+、PyYAML，其余是标准库。
+- 环境准备需要 Python、Bash、Git；补客户端依赖时需要 `venv`、pip。
+- 服务端复用镜像中已安装的 vLLM、vLLM Ascend、Torch/NPU 和 CANN/ATB，不安装、克隆或编译
+  服务端运行时。报告区分请求的源码版本与实际镜像版本、路径、Git 修改状态和哈希。
+- 客户端从节点 `aisbench-source` 包映射读取 Git 对象，私有克隆固定 AISBench
+  `0da56eadb2ac85c31c2540f4f5b69af3ec5717a5`；不修改共享工作区。
+- 客户端显式在私有 `venv --system-site-packages` 补齐 AISBench API 依赖，复用镜像已有的
+  Torch/NumPy/NPU 栈，约束现有受保护包和 Transformers。仅私有环境采用 OpenCV 4.11.0.86、
+  Pillow 11.2.1，原镜像包保持不变。
+- 若存在 `python-wheelhouse` 包映射，使用该目录并启用 `PIP_NO_INDEX`；否则按现有 pip 源安装。
 
-在具备 PyYAML 的独立 Python 环境中，从 Hive 根目录运行：
+原镜像已有冲突保留在报告中。客户端只允许已确认的一项新增例外：`vllm 0.28.0+empty` 要求
+OpenCV >=4.13.0，而该 HTTP 客户端使用私有 OpenCV 4.11.0.86；客户端不执行 vLLM。
+其他新增或恶化冲突仍会失败，不宣称完整依赖可解或上游请求版本已实际安装。
+
+## 产物与复用
+
+AISBench job 归档完整目录 `/var/tmp/hive-nightly/${HIVE_TASK_ID}/client/results`，标签为
+**AISBench outputs（完整结果目录）**。平台自动识别目录并打包，包含原生 `--work-dir` 下的
+时间戳结果树。原来的 benchmark 配置、输入 manifest、环境报告以及 JSON/CSV、结果定位记录、
+阈值判定 JSON 继续保留。
+
+`locate-results` 只接受本次日志中的唯一路径，并限定在本任务私有结果目录；保留原字节和哈希。
+定位成功不代表压测进程成功。校验退出码为 0（通过）、1（阈值失败）、2（输入或结果无效），
+`python -O` 也执行阈值检查。预置环境保留时间默认为 4320 分钟（3 天），资源和容器回收由平台管理。
+
+## 测试与代码来源
+
+在具备 PyYAML 的独立环境中，从 Hive 根目录运行：
 
 ```bash
 python -m unittest discover -s preset_tasks/qwen3-30b-a3b-w8a8/tests -p 'test_*.py'
 ```
 
-保留原先 25 项 CLI/环境行为测试，并补充归档独立导入、生成校验入口及错误上游提交拒绝检查。
-测试不依赖 `data/direct-nightly-pr`，不启动模型服务或 NPU 压测。
-`aisbench_config.py` 的渲染与阈值计算来自固定上游 `tools/aisbench.py` 的对应逻辑；本目录保存
-本预置自己的接入实现，不要求修改上游仓库。
+测试覆盖原有配置/校验/镜像复用行为、YAML 编辑确实改变执行参数、具名脚本与产物引用，以及
+原生失败码经过前台日志管道仍保留。测试不依赖 `data/direct-nightly-pr`，不启动 NPU 压测。
+`aisbench_config.py` 的渲染和阈值逻辑源自历史固定上游 `tools/aisbench.py`，许可见 [LICENSE](LICENSE)。

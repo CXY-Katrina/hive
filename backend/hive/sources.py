@@ -19,7 +19,8 @@ MAX_RESPONSE = 2 * 1024 * 1024
 
 def validate_file_request(source, path):
     if (not isinstance(source, dict) or source.get('repository') != REPOSITORY
-            or not (source.get('revision') == 'commit' and source.get('commit') == source.get('head_sha')
+            or not (source.get('revision') == 'branch' and source.get('branch') == 'main'
+                    or source.get('revision') == 'commit' and source.get('commit') == source.get('head_sha')
                     or type(source.get('pr')) is int and 1 <= source['pr'] <= 2_147_483_647)
             or source.get('commit_file') != COMMIT_FILE
             or any(not isinstance(source.get(key), str) or not re.fullmatch(pattern, source[key])
@@ -81,11 +82,31 @@ class SourceService:
                 'git_blob_sha': value['sha'], 'size': len(raw)}
 
     def resolve_spec(self, source):
+        if source.get('branch') or source.get('revision') == 'branch':
+            if source.get('pr') is not None or source.get('commit') is not None:
+                raise DomainError('分支、PR 与 commit 来源只能选择一种', 422)
+            return self.resolve_branch(source.get('branch'))
         if source.get('revision') == 'commit' or source.get('commit'):
             if source.get('pr') is not None:
                 raise DomainError('PR 与 commit 来源只能选择一种', 422)
             return self.resolve_commit(source.get('commit') or source.get('head_sha'))
         return self.resolve(source.get('pr'), revision=source.get('revision', 'head'))
+
+    def resolve_branch(self, branch):
+        if branch != 'main':
+            raise DomainError('预置仅支持 main 分支，其他版本请填写完整 commit', 422)
+        value = self._json(f'{API}/commits/main')
+        head = value.get('sha')
+        if not isinstance(head, str) or not re.fullmatch(r'[0-9a-f]{40}', head):
+            raise DomainError('GitHub main 没有有效的固定提交 SHA', 502)
+        anchor = self._content(head, COMMIT_FILE)
+        vllm = anchor['content'].strip()
+        if not re.fullmatch(r'[0-9a-f]{40}', vllm):
+            raise DomainError('vLLM commit 文件必须包含唯一的完整提交 SHA', 422)
+        return {'revision': 'branch', 'branch': 'main', 'repository': REPOSITORY,
+                'head_sha': head, 'vllm_sha': vllm, 'commit_file': COMMIT_FILE,
+                'commit_file_sha256': anchor['sha256'], 'resolved_at': str(now()),
+                'url': f'https://github.com/{REPOSITORY}/tree/main'}
 
     def resolve_commit(self, commit):
         if not isinstance(commit, str) or not re.fullmatch(r'[0-9a-f]{40}', commit):

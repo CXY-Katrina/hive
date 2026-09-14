@@ -19,4 +19,4 @@ hive = "hive.cli:main"
 where = ["backend"]
 
 [tool.setuptools.package-data]
-hive = ["sql/*.sql", "scripts/*.sh"]
+hive = ["sql/*.sql", "scripts/*.sh", "scripts/*.py"]

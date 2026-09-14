@@ -49,18 +49,17 @@ def expand_workflow(spec):
                             for instance in job_ids[dep['job_id']].values()]
             artifacts = []
             for item in job['artifacts']:
-                targets = item.get('targets') or ([{'environment': item['environment'], 'node_alias': target_node}
-                    for target_node in env_nodes[item['environment']]] if item.get('environment') else [])
-                if not targets:
-                    artifacts.append({key: copy.deepcopy(value) for key, value in item.items() if key != 'targets'})
+                artifact_environment = item.get('environment') or job['environment']
+                targets = item.get('targets') or [{'environment': artifact_environment, 'node_alias': target_node}
+                    for target_node in env_nodes[artifact_environment]]
                 for target in targets:
                     # A selected target is archived once by its local job instance when possible.
                     owner = target['node_alias'] if target['node_alias'] in job_ids[job['id']] else next(iter(job_ids[job['id']]))
                     if node == owner:
                         artifacts.append({**{key: copy.deepcopy(value) for key, value in item.items() if key != 'targets'},
                             'environment': env_ids[target['environment'], target['node_alias']]})
-            if len(artifacts) > 16:
-                raise DomainError('每个 job 实例最多归档 16 个产物，请分配到不同节点 job', 422)
+            if len(artifacts) > 2048:
+                raise DomainError('每个 job 实例最多归档 2048 个展开后的节点产物', 422)
             if len({(a.get('environment') or env_ids[job['environment'], node], a['path']) for a in artifacts}) != len(artifacts):
                 raise DomainError('产物目标路径重复', 422)
             jobs.append({**copy.deepcopy(job), 'id': ident, 'logical_job_id': job['id'],
@@ -98,6 +97,9 @@ def bind_artifact_paths(jobs, task_id):
         seen = set()
         for artifact in job['artifacts']:
             path = artifact['path'].replace('${task_id}', task_id).replace('${job_id}', job['id'])
+            for name, value in (('HIVE_TASK_ID',task_id),('HIVE_JOB_ID',job['id'])):
+                path = re.sub(r'\$(?:\{' + name + r'\}|' + name + r'(?![A-Za-z0-9_]))',
+                              lambda match: value,path)
             key = (artifact.get('environment') or job['environment'], path)
             if len(path) > 4096 or key in seen:
                 raise DomainError('解析后的产物路径超过 4096 字符或与同一目标重复', 422)

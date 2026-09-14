@@ -1,6 +1,6 @@
 import type { ID, ResourceSpec } from './types';
 
-export interface WorkflowSource { commit?: string; revision?: 'head' | 'merged' | 'commit'; pr?: number | string; head_sha: string; vllm_sha: string; repository?: string; url?: string }
+export interface WorkflowSource { branch?: 'main'; commit?: string; revision?: 'head' | 'merged' | 'commit' | 'branch'; pr?: number | string; head_sha: string; vllm_sha: string; repository?: string; url?: string }
 export interface WorkflowInput { type: 'yaml'; path: string; uploaded_content?: string }
 export interface WorkflowStep { launch?: string; files?: { name: string; content: string }[]; type: 'shell' | 'python' | 'yaml'; path: string; args: string[]; uploaded_content?: string; inputs?: WorkflowInput[]; runner?: { type: 'shell' | 'python'; path: string; args: string[] }; external?: boolean }
 export interface WorkflowEnvironment { node_aliases?: string[]; alias: string; role: 'server' | 'client'; node_alias: string; image: string; shell: string; python: string; workdir: string; environment: Record<string, string>; packages: { name: string; version: string; source: string }[]; bootstrap: WorkflowStep; install: WorkflowStep[]; verify: WorkflowStep[] }

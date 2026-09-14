@@ -48,6 +48,30 @@ class MultiRemote(Remote):
 
 @unittest.skipUnless(os.getenv('HIVE_TEST_MYSQL_PORT'), 'Needs isolated MySQL')
 class MultiNodeHTTP(unittest.TestCase):
+    def test_shell_and_python_jobs_receive_one_unified_environment_on_every_node(self):
+        spec = self.multi()
+        service = spec['jobs'][0]
+        service.update(kind='service', ports=[8000], ready=[{'launch': 'true'}])
+        spec['jobs'].append({'id': 'client', 'environment': 'server_env', 'npu_count': 0,
+                            'depends_on': [{'job_id': 'first', 'condition': 'ready'}],
+                            'steps': [{'launch': 'echo "$HIVE_NODE0_IP $HIVE_NODEID $HIVE_JOB_FIRST_NODE0_ENDPOINT"'}]})
+        remote = MultiRemote()
+        remote.hold_services = True
+        task, space = self.start(spec, remote)
+        self.advance(task, space)
+        clients = [(host, script) for host, script in remote.prepared
+                   if 'echo "$HIVE_NODE0_IP $HIVE_NODEID $HIVE_JOB_FIRST_NODE0_ENDPOINT"' in script]
+        self.assertEqual({host for host, script in clients}, {'10.0.0.1', '10.0.0.2'})
+        bindings = json.loads(self.db.one('SELECT runtime FROM workflow_spaces WHERE id=%s', (space['id'],))['runtime'])['bindings']
+        for host, script in clients:
+            alias = next(alias for alias, binding in bindings.items() if binding['host'] == host)
+            self.assertIn('export HIVE_JOB_NUM_NODES=2', script)
+            self.assertIn('export HIVE_NODEID=' + alias[4:], script)
+            self.assertIn('export HIVE_JOB_NODELIST=' + ','.join(bindings['node' + str(i)]['host'] for i in range(2)), script)
+            self.assertIn('export HIVE_JOB_FIRST_NODE0_ENDPOINT=http://' + bindings['node0']['host'] + ':8000', script)
+            self.assertIn('export HIVE_JOB_FIRST_NODE1_ENDPOINT=http://' + bindings['node1']['host'] + ':8000', script)
+            self.assertIn('export HIVE_TASK_ID=' + task['id'], script)
+
     setUpClass = classmethod(workflow_fixtures.WorkflowHTTP.setUpClass.__func__)
     tearDownClass = classmethod(workflow_fixtures.WorkflowHTTP.tearDownClass.__func__)
     def setUp(self):
@@ -173,6 +197,29 @@ class MultiNodeHTTP(unittest.TestCase):
             {'environment': 'server_env', 'node_alias': 'node2'}]}]
         self.assertEqual(self.client.post('/api/workflows', json=invalid).status_code, 422)
         self.assertEqual(len(self.client.get('/api/requests').json()), 1)
+
+    def test_omitted_artifact_targets_cover_environment_nodes_outside_job_subset(self):
+        spec = self.multi()
+        spec['jobs'][0]['node_aliases'] = ['node0']
+        spec['jobs'][0]['artifacts'] = [{'path': '/outputs', 'label': 'All outputs'}]
+        response = self.client.post('/api/workflows', json=spec)
+        self.assertEqual(response.status_code, 201, response.text)
+        task = response.json()
+        self.assertEqual(len(task['jobs']), 1)
+        artifacts = task['jobs'][0]['spec']['artifacts']
+        space = self.client.get('/api/spaces').json()[0]
+        self.assertEqual({item['environment'] for item in artifacts},
+                         {item['alias'] for item in space['environments']})
+
+    def test_one_directory_on_many_nodes_does_not_hit_logical_path_limit(self):
+        spec = self.multi()
+        spec['resource']['machine_count'] = 32
+        spec['environments'][0]['node_aliases'] = ['node'+str(i) for i in range(32)]
+        spec['jobs'][0]['node_aliases'] = ['node0']
+        spec['jobs'][0]['artifacts'] = [{'path':'/outputs'}]
+        response = self.client.post('/api/workflows',json=spec)
+        self.assertEqual(response.status_code,201,response.text)
+        self.assertEqual(len(response.json()['jobs'][0]['spec']['artifacts']),32)
 
     def test_cross_node_dependencies_expand_barrier_and_endpoint_sources(self):
         spec = self.multi()
@@ -300,6 +347,29 @@ class MultiNodeHTTP(unittest.TestCase):
         remote.hold_host = None
         detail = self.advance(task, space)
         self.assertEqual({j['status'] for j in detail['jobs']}, {'SUCCEEDED'})
+
+    def test_artifact_paths_accept_documented_hive_variables_and_preserve_template(self):
+        for index,template in enumerate(('/tmp/${HIVE_TASK_ID}/${HIVE_JOB_ID}/outputs',
+                                         '/tmp/$HIVE_TASK_ID/$HIVE_JOB_ID/outputs')):
+            spec = self.multi()
+            spec['idempotency_key'] = 'hive-artifact-variable-'+str(index)
+            spec['jobs'][0]['artifacts'] = [{'path':template}]
+            response = self.client.post('/api/workflows',json=spec)
+            self.assertEqual(response.status_code,201,response.text)
+            task = response.json()
+            self.assertEqual(task['spec']['jobs'][0]['artifacts'][0]['path'],template)
+            for job in task['jobs']:
+                self.assertEqual(job['spec']['artifacts'][0]['path'],
+                                 '/tmp/'+task['id']+'/'+job['id']+'/outputs')
+
+    def test_artifact_variable_expansion_does_not_replace_longer_variable_names(self):
+        template = '/tmp/$HIVE_TASK_ID_suffix/$HIVE_JOB_ID2/outputs'
+        spec = self.multi()
+        spec['jobs'][0]['artifacts'] = [{'path':template}]
+        response = self.client.post('/api/workflows',json=spec)
+        self.assertEqual(response.status_code,201,response.text)
+        for job in response.json()['jobs']:
+            self.assertEqual(job['spec']['artifacts'][0]['path'],template)
 
     def test_artifact_paths_bind_task_and_instance_ids_while_reuse_retains_templates(self):
         template = '/tmp/hive-results/${task_id}/${job_id}/result.txt'

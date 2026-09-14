@@ -39,7 +39,7 @@ async function workspace({ spaces = [], presets = [], initialRuns = [], canReque
   await page.route('**/api/**', async route => {
     const req = route.request(), path = new URL(req.url()).pathname;
     if (path === '/api/session') return route.fulfill({ json: { id: 'u1', username: 'alice', admin, can_request: canRequest, can_view_credentials: false } });
-    if (path === '/api/sources/resolve') return route.fulfill({ json: source });
+    if (path === '/api/sources/resolve') return route.fulfill({ json: req.postDataJSON().branch ? {branch:'main',revision:'branch',head_sha:source.head_sha,vllm_sha:source.vllm_sha} : source });
     if (path === '/api/requests' && req.method() === 'POST') { const body = req.postDataJSON(); debugRequests.push(body); return route.fulfill({ status: 202, json: { id: 'debug1', spec: body.spec } }); }
     if (path === '/api/workflows' && req.method() === 'POST') {
       const body = req.postDataJSON(); submissions.push(body);
@@ -91,7 +91,7 @@ test('environment and job sections stay visible with independent item tabs and u
     assert.equal(await page.getByRole('textbox', { name: 'env2 · 镜像', exact: true }).isVisible(), true);
     assert.equal(await page.getByRole('textbox', { name: 'job1 主执行 1 · 启动命令', exact: true }).isVisible(), false);
     await page.getByRole('button', { name: '保留环境', exact: true }).click();
-    await page.getByRole('spinbutton', { name: '保留时长（分钟）', exact: true }).fill('45');
+    await page.getByRole('spinbutton', { name: '保留时长（天）', exact: true }).fill('2');
     assert.equal(await page.getByRole('button', { name: '新申请环境', exact: true }).getAttribute('aria-pressed'), 'true');
     assert.equal(await page.getByRole('group', { name: /容器角色/ }).count(), 0);
     const resources = await page.locator('.resource-form').boundingBox(), environments = await page.getByRole('region', { name: '环境配置', exact: true }).boundingBox(), jobs = await page.getByRole('region', { name: 'Jobs 配置', exact: true }).boundingBox();
@@ -116,7 +116,8 @@ test('one environment can cover multiple nodes and artifacts select exact contai
     await page.getByRole('textbox', { name: 'env2 · 镜像', exact: true }).fill('fixture/env:2');
     await page.getByRole('textbox', { name: 'job1 主执行 1 · 启动命令', exact: true }).fill('echo multi-node');
     await page.getByRole('button', { name: '添加 job1 产物', exact: true }).click();
-    await page.getByRole('group', { name: 'job1 产物 1 · 目标容器与节点', exact: true }).getByRole('button', { name: 'env2 / node0', exact: true }).click();
+    await page.getByText('选择产物服务器与容器',{exact:true}).click();
+    await page.getByRole('group', { name: 'job1 产物 1 · 目标容器与节点', exact: true }).getByRole('checkbox', { name: 'node0 - env2', exact: true }).check();
     await page.getByRole('textbox', { name: 'job1 产物 1 · 名称', exact: true }).fill('多机结果');
     await page.getByRole('textbox', { name: 'job1 产物 1 · 路径', exact: true }).fill('/home/result.json');
     await page.getByRole('tab', { name: 'env1', exact: true }).click();
@@ -191,7 +192,8 @@ test('a member saves edited preset parameters as a separate unverified case with
     await page.getByRole('status').filter({ hasText: '已另存为新用例' }).waitFor();
     assert.equal(submissions.length, 0);
     assert.equal(derives.length, 1);
-    assert.equal(derives[0].workflow.source.revision, 'merged');
+    assert.equal(derives[0].workflow.source.revision, 'branch');
+    assert.equal(derives[0].workflow.source.branch, 'main');
     assert.equal(derives[0].workflow.jobs[0].steps[0].launch, 'bash ci/base.sh --batch-size 8');
     assert.equal(derives[0].workflow.preset_id, undefined);
     assert.equal(presets[0].name, '原始用例');
@@ -202,7 +204,7 @@ test('a member saves edited preset parameters as a separate unverified case with
 
 test('saving a preset from a retained space creates a rebuildable template instead of retaining its temporary space id', async () => {
   const preset = { id: 'base', name: '可复用基准', enabled: true, source, tags: {}, workflow: { name: '可复用任务', source, jobs: [{ id: 'job1', environment: 'env1', steps: [{ type: 'shell', path: 'ci/base.sh', args: [] }] }] } };
-  const spaces = [{ id: 'retained', owner_name: 'alice', status: 'READY', spec: { resource: { generation: 'A3', machine_count: 1, mode: 'partial', cards_per_node: 2 }, environments: [{ alias: 'env1', node_aliases: ['node0'], image: 'fixture/frozen:1' }] }, environments: [{ alias: 'env1__node0', logical_alias: 'env1', node_alias: 'node0', status: 'READY' }] }];
+  const spaces = [{ id: 'retained', owner_name: 'alice', status: 'READY', spec: { source, resource: { generation: 'A3', machine_count: 1, mode: 'partial', cards_per_node: 2 }, environments: [{ alias: 'env1', node_aliases: ['node0'], image: 'fixture/frozen:1' }] }, environments: [{ alias: 'env1__node0', logical_alias: 'env1', node_alias: 'node0', status: 'READY' }] }];
   const { page, submissions } = await workspace({ presets: [preset], spaces });
   const derives = [];
   await page.route('**/api/presets/base/derive', route => { const body = route.request().postDataJSON(); derives.push(body); return route.fulfill({ status: 201, json: { id: 'copy', name: body.name } }); });
@@ -211,7 +213,7 @@ test('saving a preset from a retained space creates a rebuildable template inste
     await page.getByText('选择预置任务', { exact: true }).click();
     await page.getByRole('button', { name: '使用预置 可复用基准', exact: true }).click();
     await page.getByRole('button', { name: '复用已有环境', exact: true }).click();
-    await page.getByRole('group', { name: '运行空间', exact: true }).getByRole('button', { name: '#retained · READY', exact: true }).click();
+    await page.getByRole('combobox', { name: '选择已有运行空间', exact: true }).selectOption('retained');
     await page.getByRole('button', { name: /另存为新用例/ }).click();
     await page.getByRole('button', { name: '确认另存', exact: true }).click();
     await page.getByRole('status').filter({ hasText: '已另存为新用例' }).waitFor();
@@ -220,6 +222,37 @@ test('saving a preset from a retained space creates a rebuildable template inste
     assert.equal(derives[0].workflow.environments[0].alias, 'env1');
     assert.equal(derives[0].workflow.environments[0].image, 'fixture/frozen:1');
     assert.equal(submissions.length, 0);
+  } finally { await page.close(); }
+});
+
+test('reuse selects a real ready container and preserves edited jobs without inventing environments', async () => {
+  const spaces = [{ id: 'actual', owner_name: 'alice', status: 'READY', spec: { source, resource: { machine_count: 1 }, environments: [{ alias: 'retained_env', node_aliases: ['node0'], image: 'fixture/kept:1' }] }, environments: [{ alias: 'retained_env__node0', logical_alias: 'retained_env', node_alias: 'node0', status: 'READY', host: '192.0.2.159', container_name: 'actual-container' }] }, { id: 'preparing', owner_name: 'alice', status: 'PREPARING', spec: {}, environments: [] }];
+  const { page, submissions } = await workspace({ spaces });
+  try {
+    await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
+    await page.getByRole('textbox', { name: 'env1 · 镜像', exact: true }).fill('fixture/my-draft:1');
+    await page.getByRole('textbox', { name: 'job1 主执行 1 · 启动命令', exact: true }).fill('echo preserve-my-job');
+    await page.getByRole('button', { name: '复用已有环境', exact: true }).click();
+    const picker = page.getByRole('combobox', { name: '选择已有运行空间', exact: true });
+    assert.equal(await picker.inputValue(), '');
+    assert.equal(await page.getByRole('tab', { name: 'env1', exact: true }).count(), 0);
+    assert.equal(await picker.locator('option[value="preparing"]').count(), 0);
+    await picker.selectOption('actual');
+    await page.getByRole('region', { name: '环境配置', exact: true }).getByText('actual-container', {exact:true}).waitFor();
+    await page.getByRole('region', { name: '环境配置', exact: true }).getByText('192.0.2.159', {exact:true}).waitFor();
+    assert.equal(await page.getByRole('group', { name: 'job1 · 目标环境', exact: true }).getByRole('button', {name:'retained_env',exact:true}).getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.getByRole('textbox', { name: 'job1 主执行 1 · 启动命令', exact: true }).inputValue(), 'echo preserve-my-job');
+    assert.equal(await page.getByRole('textbox', {name:'vLLM-Ascend PR / commit',exact:true}).isDisabled(),true);
+    await page.getByRole('button', { name: /提交任务申请/ }).click();
+    await page.getByRole('status').filter({ hasText: '已提交' }).waitFor();
+    assert.equal(submissions[0].space_id, 'actual');
+    assert.equal(submissions[0].resource, undefined);
+    assert.deepEqual(submissions[0].environments, []);
+    assert.equal(submissions[0].jobs[0].environment, 'retained_env');
+    assert.equal(submissions[0].source.revision, 'commit');
+    assert.equal(submissions[0].source.pr, undefined);
+    await page.getByRole('button', { name:'新申请环境',exact:true }).click();
+    assert.equal(await page.getByRole('textbox', {name:'env1 · 镜像',exact:true}).inputValue(),'fixture/my-draft:1');
   } finally { await page.close(); }
 });
 
@@ -388,7 +421,7 @@ test('connect service readiness to a zero-NPU client and reject a dependency cyc
 });
 
 test('reuse a retained space, inspect per-stage logs, and request task cancellation and space closure', async () => {
-  const spaces = [{ id: 's1', status: 'READY', owner_name: 'alice', retain_until: '2099-01-01T00:00:00Z', spec: { resource: { machine_count: 1 } }, environments: [{ alias: 'env1', role: 'server', node_alias: 'node0', status: 'READY', container_name: 'hive-owned-server' }] }];
+  const spaces = [{ id: 's1', status: 'READY', owner_name: 'alice', retain_until: '2099-01-01T00:00:00Z', spec: { source, resource: { machine_count: 1 } }, environments: [{ alias: 'env1', role: 'server', node_alias: 'node0', status: 'READY', container_name: 'hive-owned-server' }] }];
   const initialRuns = [{ id: 'previous', name: '已有任务', owner_name: 'alice', status: 'RUNNING', space_id: 's1', created_at: '2026-09-12T10:00:00Z', spec: { source, jobs: [], environments: [] }, jobs: [{ id: 'job1', name: 'check', status: 'FAILED', phase: 'pre', reason: '检查失败', logs: [{ phase: 'pre', text: 'fixture precheck rejected' }] }] }];
   const { page, submissions, actions } = await workspace({ spaces, initialRuns });
   try {
@@ -403,7 +436,7 @@ test('reuse a retained space, inspect per-stage logs, and request task cancellat
     await page.getByRole('button', { name: /解析 PR/ }).click();
     await page.locator('.source-snapshot').getByText(source.head_sha, { exact: true }).first().waitFor();
     await page.getByRole('button', { name: '复用已有环境', exact: true }).click();
-    await page.getByRole('group', { name: '运行空间', exact: true }).getByRole('button', { name: '#s1 · READY', exact: true }).click();
+    await page.getByRole('combobox', { name: '选择已有运行空间', exact: true }).selectOption('s1');
     await page.getByRole('tablist', { name: '作业列表', exact: true }).getByRole('tab').first().click();
     await page.getByRole('textbox', { name: 'job1 主执行 1 · 启动命令', exact: true }).fill('bash ci/check.sh');
     await page.getByRole('button', { name: /提交任务申请/ }).click();
@@ -476,26 +509,164 @@ test('ordinary users can load unverified presets into the editor without allocat
   } finally { await page.close(); }
 });
 
-test('archive presets preserve fixed commits without PR resolution and accept explicitly edited commits', async () => {
+test('loading a preset resolves main and fixes its execution snapshot while preserving archive provenance', async () => {
   const pinned = { revision: 'commit', commit: 'c'.repeat(40), head_sha: 'c'.repeat(40), vllm_sha: 'd'.repeat(40) };
-  const presets = [{ id: 'archive-nightly', name: '本地 nightly', origin: 'archive', loadable: true, enabled: true, source: pinned, created_by: 'admin', yaml_path: 'tests/e2e/nightly/configs/Qwen.yaml', tags: { cycle: 'nightly' }, workflow: { source: pinned, environments: [{ alias: 'env1', node_alias: 'node0', image: 'fixture/runtime:1' }], jobs: [{ id: 'sample', environment: 'env1', steps: [{ launch: 'echo fixed-commit' }] }] } }];
+  const presets = [{ id: 'archive-nightly', name: '本地 nightly', origin: 'archive', loadable: true, enabled: true, source: pinned, created_by: 'admin', yaml_path: 'tests/e2e/nightly/configs/Qwen.yaml', tags: { cycle: 'nightly' }, workflow: { source: pinned, environments: [{ alias: 'env1', node_alias: 'node0', image: 'fixture/runtime:1' }], jobs: [{ id: 'sample', environment: 'env1', steps: [{ launch: 'echo fixed-commit', files:[{name:'tests/e2e/nightly/configs/Qwen.yaml',content:'revision: old'}] }] }] } }];
   const { page, submissions } = await workspace({ presets });
-  const resolutions = [];
-  await page.route('**/api/sources/resolve', async route => { const body = route.request().postDataJSON(); resolutions.push(body); return route.fulfill({ json: { ...pinned, commit: body.commit, head_sha: body.commit } }); });
+  const resolutions = [], files = [];
+  const main = { revision: 'branch', branch: 'main', commit: 'e'.repeat(40), head_sha: 'e'.repeat(40), vllm_sha: 'f'.repeat(40) };
+  await page.route('**/api/sources/resolve', async route => { resolutions.push(route.request().postDataJSON()); return route.fulfill({ json: main }); });
+  await page.route('**/api/sources/file', async route => { files.push(route.request().postDataJSON());return route.fulfill({json:{path:'tests/e2e/nightly/configs/Qwen.yaml',content:'revision: main'}});});
   try {
     await page.getByRole('button', { name: '+ 新建任务', exact: true }).click();
     await page.getByText('选择预置任务', { exact: true }).click();
     await page.getByRole('button', { name: '使用预置 本地 nightly', exact: true }).click();
-    assert.equal(await page.getByRole('textbox', { name: 'vLLM-Ascend PR / commit', exact: true }).inputValue(), pinned.commit);
+    await page.locator('.source-snapshot').getByText(main.head_sha, { exact: true }).waitFor();
+    assert.equal(await page.getByRole('textbox', { name: 'vLLM-Ascend PR / commit', exact: true }).inputValue(), 'main');
+    assert.deepEqual(resolutions, [{ branch: 'main' }]);
+    await page.getByText('查看预置来源', { exact: true }).click();
+    await page.locator('.workflow-preset-list').getByText(pinned.head_sha, { exact: true }).waitFor();
+    assert.equal(await page.getByRole('spinbutton', { name: '保留时长（天）', exact: true }).inputValue(), '3');
     await page.getByRole('button', { name: /提交任务申请/ }).click();
     await page.getByRole('status').filter({ hasText: '已提交' }).waitFor();
-    assert.deepEqual(submissions[0].source, pinned);
-    assert.deepEqual(resolutions, []);
-    await page.getByRole('textbox', { name: 'vLLM-Ascend PR / commit', exact: true }).fill('E'.repeat(40));
-    await page.getByRole('button', { name: /解析 PR/ }).click();
-    await page.locator('.source-snapshot').getByText('e'.repeat(40), { exact: true }).waitFor();
-    assert.deepEqual(resolutions, [{ commit: 'e'.repeat(40) }]);
+    assert.deepEqual(submissions[0].source, main);
+    assert.equal(submissions[0].retain_minutes, 4320);
+    assert.deepEqual(files,[{source:main,path:'tests/e2e/nightly/configs/Qwen.yaml'}]);
+    assert.equal(submissions[0].jobs[0].steps[0].files[0].content,'revision: main');
   } finally { await page.close(); }
+});
+
+test('uploaded files can be opened edited and saved consistently across shared steps', async () => {
+  const file = {name:'shared.py',content:'print("before")'};
+  const presets = [{id:'editable',name:'可编辑附件',loadable:true,enabled:true,tags:{},workflow:{environments:[{alias:'env1',node_alias:'node0',image:'fixture/env:1',install:[{launch:'python3 shared.py',files:[file]}]}],jobs:[{id:'job1',environment:'env1',steps:[{launch:'python3 shared.py',files:[file]}]}]}}];
+  const {page,submissions}=await workspace({presets});
+  try {
+    await page.getByRole('button',{name:'+ 新建任务',exact:true}).click();
+    await page.getByText('选择预置任务',{exact:true}).click();
+    await page.getByRole('button',{name:'使用预置 可编辑附件',exact:true}).click();
+    await page.getByRole('region',{name:'Jobs 配置',exact:true}).getByRole('button',{name:'编辑 shared.py',exact:true}).click();
+    const dialog=page.getByRole('dialog');
+    assert.equal(await dialog.getByRole('textbox',{name:'文件内容',exact:true}).inputValue(),'print("before")');
+    await dialog.getByRole('textbox',{name:'文件内容',exact:true}).fill('print("after")');
+    await dialog.getByRole('button',{name:'保存文件',exact:true}).click();
+    await page.getByRole('region',{name:'环境配置',exact:true}).getByRole('button',{name:'编辑 shared.py',exact:true}).click();
+    assert.equal(await page.getByRole('dialog').getByRole('textbox',{name:'文件内容',exact:true}).inputValue(),'print("after")');
+    await page.getByRole('dialog').getByRole('button',{name:'取消',exact:true}).click();
+    await page.getByRole('button',{name:/提交任务申请/}).click();
+    await page.getByRole('status').filter({hasText:'已提交'}).waitFor();
+    assert.equal(submissions[0].jobs[0].steps[0].files[0].content,'print("after")');
+    assert.equal(submissions[0].environments[0].install[0].files[0].content,'print("after")');
+  } finally {await page.close();}
+});
+
+test('artifact destinations follow all selected nodes and the current job environment without manual repair', async () => {
+  const {page,submissions}=await workspace();
+  try {
+    await page.getByRole('spinbutton',{name:'机器数量',exact:true}).fill('2');
+    await page.getByRole('button',{name:'+ 新建任务',exact:true}).click();
+    await page.getByRole('textbox',{name:'vLLM-Ascend PR / commit',exact:true}).fill('123');
+    await page.getByRole('button',{name:/解析 PR/}).click();
+    await page.locator('.source-snapshot').getByText(source.head_sha,{exact:true}).waitFor();
+    await page.getByRole('textbox',{name:'env1 · 镜像',exact:true}).fill('fixture/server:1');
+    await page.getByRole('textbox',{name:'job1 主执行 1 · 启动命令',exact:true}).fill('echo artifacts');
+    await page.getByRole('button',{name:'添加 job1 产物',exact:true}).click();
+    await page.getByRole('textbox',{name:'job1 产物 1 · 名称',exact:true}).fill('目录结果');
+    await page.getByRole('textbox',{name:'job1 产物 1 · 路径',exact:true}).fill('/home/results/$HIVE_TASK_ID');
+    await page.getByRole('group',{name:'env1 · 服务器',exact:true}).getByRole('button',{name:'node1',exact:true}).click();
+    await page.getByText('选择产物服务器与容器',{exact:true}).click();
+    assert.equal(await page.getByRole('checkbox',{name:'node1 - env1',exact:true}).isChecked(),true);
+    await page.getByRole('tab',{name:'env2',exact:true}).click();
+    await page.getByRole('textbox',{name:'env2 · 镜像',exact:true}).fill('fixture/client:1');
+    await page.getByRole('group',{name:'env2 · 服务器',exact:true}).getByRole('button',{name:'node1',exact:true}).click();
+    await page.getByRole('group',{name:'job1 · 目标环境',exact:true}).getByRole('button',{name:'env2',exact:true}).click();
+    assert.equal(await page.getByRole('checkbox',{name:'node0 - env1',exact:true}).isChecked(),false);
+    assert.equal(await page.getByRole('checkbox',{name:'node1 - env2',exact:true}).isChecked(),true);
+    await page.getByRole('group',{name:'env2 · 服务器',exact:true}).getByRole('button',{name:'node0',exact:true}).click();
+    assert.equal(await page.getByRole('checkbox',{name:'node0 - env2',exact:true}).count(),0);
+    await page.getByRole('button',{name:/提交任务申请/}).click();
+    await page.getByRole('status').filter({hasText:'已提交'}).waitFor();
+    assert.deepEqual(submissions[0].jobs[0].artifacts[0].targets,[{environment:'env2',node_alias:'node1'}]);
+    assert.equal(submissions[0].jobs[0].artifacts[0].kind,undefined);
+  } finally {await page.close();}
+});
+
+test('image selection searches Quay tags across pages and still accepts a local image alias', async () => {
+  const {page}=await workspace();
+  const requests=[];
+  await page.route('**/api/images/vllm-ascend/tags?*', route=>{const number=Number(new URL(route.request().url()).searchParams.get('page'));requests.push(number);return route.fulfill({json:{tags:number===1?[{name:'nightly-older',image:'quay.io/ascend/vllm-ascend:nightly-older'}]:[{name:'nightly-target',image:'quay.io/ascend/vllm-ascend:nightly-target'}],has_more:number===1}});});
+  try {
+    await page.getByRole('button',{name:'+ 新建任务',exact:true}).click();
+    const env=page.getByRole('tabpanel',{name:'env1',exact:true});
+    await env.getByText('搜索 Quay 镜像标签',{exact:true}).click();
+    await env.getByRole('textbox',{name:'搜索镜像标签',exact:true}).fill('target');
+    await env.getByRole('button',{name:'加载更多标签',exact:true}).click();
+    await env.getByRole('button',{name:'nightly-target',exact:true}).click();
+    assert.equal(await page.getByRole('textbox',{name:'env1 · 镜像',exact:true}).inputValue(),'quay.io/ascend/vllm-ascend:nightly-target');
+    await page.getByRole('textbox',{name:'env1 · 镜像',exact:true}).fill('my-local-image');
+    assert.equal(await page.getByRole('textbox',{name:'env1 · 镜像',exact:true}).inputValue(),'my-local-image');
+    assert.deepEqual(requests,[1,2]);
+  } finally {await page.close();}
+});
+
+test('failed main YAML refresh blocks submission and retry refreshes YAML before allowing execution', async () => {
+  const path='tests/e2e/nightly/configs/case.yaml';
+  const presets=[{id:'retry',name:'刷新失败预置',origin:'archive',enabled:true,loadable:true,yaml_path:path,tags:{},source,workflow:{jobs:[{id:'job1',environment:'env1',steps:[{launch:'echo yaml',files:[{name:path,content:'version: old'}]}]}]}}];
+  const {page,submissions}=await workspace({presets});let calls=0;
+  await page.route('**/api/sources/file',route=>{calls++;return calls===1?route.fulfill({status:503,json:{detail:'获取最新 YAML 失败'}}):route.fulfill({json:{path,content:'version: fresh'}});});
+  try {
+    await page.getByRole('button',{name:'+ 新建任务',exact:true}).click();
+    await page.getByText('选择预置任务',{exact:true}).click();
+    await page.getByRole('button',{name:'使用预置 刷新失败预置',exact:true}).click();
+    await page.getByRole('alert').filter({hasText:'获取最新 YAML 失败'}).waitFor();
+    assert.equal(await page.getByRole('button',{name:/提交任务申请/}).isDisabled(),true);
+    await page.getByRole('button',{name:/解析 PR/}).click();
+    await page.locator('.source-snapshot').getByText(source.head_sha,{exact:true}).waitFor();
+    assert.equal(calls,2);
+    await page.getByRole('button',{name:`编辑 ${path}`,exact:true}).click();
+    assert.equal(await page.getByRole('dialog').getByRole('textbox',{name:'文件内容',exact:true}).inputValue(),'version: fresh');
+    assert.equal(submissions.length,0);
+  } finally {await page.close();}
+});
+
+test('a preset default directory artifact expands when its environment gains another node',async()=>{
+ const presets=[{id:'directory',name:'目录产物预置',enabled:true,tags:{},workflow:{environments:[{alias:'env1',node_aliases:['node0'],image:'fixture/image'}],jobs:[{id:'job1',environment:'env1',steps:[{launch:'echo directory'}],artifacts:[{label:'目录',path:'/home/results/$HIVE_TASK_ID',targets:[{environment:'env1',node_alias:'node0'}]}]}]}}];
+ const {page,submissions}=await workspace({presets});
+ try{
+  await page.getByRole('button',{name:'+ 新建任务',exact:true}).click();await page.getByText('选择预置任务',{exact:true}).click();await page.getByRole('button',{name:'使用预置 目录产物预置',exact:true}).click();
+  await page.getByRole('spinbutton',{name:'机器数量',exact:true}).fill('2');
+  await page.getByRole('group',{name:'env1 · 服务器',exact:true}).getByRole('button',{name:'node1',exact:true}).click();
+  await page.getByRole('button',{name:/提交任务申请/}).click();await page.getByRole('status').filter({hasText:'已提交'}).waitFor();
+  assert.deepEqual(submissions[0].jobs[0].artifacts[0].targets,[{environment:'env1',node_alias:'node0'},{environment:'env1',node_alias:'node1'}]);
+ }finally{await page.close();}
+});
+
+test('the single host bootstrap is visible and editable while untouched legacy external entry remains intact',async()=>{
+ const bootstrap={launch:'bash "$HIVE_SOURCE_DIR/bootstrap.sh"',files:[{name:'bootstrap.sh',content:'#!/bin/bash\necho create'}]};
+ const presets=[{id:'bootstrap',name:'启动容器配置',enabled:true,tags:{},workflow:{environments:[{alias:'env1',node_alias:'node0',image:'fixture/image',bootstrap},{alias:'env2',node_alias:'node0',image:'fixture/legacy'}],jobs:[{id:'job1',environment:'env1',steps:[{launch:'echo ready'}]}]}}];
+ const {page,submissions}=await workspace({presets});
+ try{
+  await page.getByRole('button',{name:'+ 新建任务',exact:true}).click();await page.getByText('选择预置任务',{exact:true}).click();await page.getByRole('button',{name:'使用预置 启动容器配置',exact:true}).click();
+  const panel=page.getByRole('tabpanel',{name:'env1',exact:true});
+  assert.equal(await panel.getByRole('textbox',{name:'env1 创建容器 1 · 启动命令',exact:true}).isVisible(),false);
+  await panel.getByText('创建容器（宿主机）',{exact:true}).click();
+  const command=panel.getByRole('textbox',{name:'env1 创建容器 1 · 启动命令',exact:true});
+  assert.equal(await command.inputValue(),bootstrap.launch);
+  assert.equal(await panel.getByRole('button',{name:'+ 添加 env1 创建容器',exact:true}).count(),0);
+  assert.equal(await panel.getByRole('button',{name:'删除 env1 创建容器 1',exact:true}).count(),0);
+  await command.fill(bootstrap.launch+' --debug');
+  await panel.getByRole('button',{name:'编辑 bootstrap.sh',exact:true}).click();
+  await page.getByRole('dialog').getByRole('textbox',{name:'文件内容',exact:true}).fill('#!/bin/bash\necho create-updated');
+  await page.getByRole('dialog').getByRole('button',{name:'保存文件',exact:true}).click();
+  await page.getByRole('tab',{name:'env2',exact:true}).click();
+  const legacy=page.getByRole('tabpanel',{name:'env2',exact:true});
+  await legacy.getByText('创建容器（宿主机）',{exact:true}).click();
+  assert.match(await legacy.getByRole('textbox',{name:'env2 创建容器 1 · 启动命令',exact:true}).inputValue(),/^bash \/mnt\/share\/c00814587\/start-docker-A3.sh /);
+  await page.getByRole('button',{name:/提交任务申请/}).click();await page.getByRole('status').filter({hasText:'已提交'}).waitFor();
+  assert.deepEqual(submissions[0].environments[0].bootstrap,{launch:bootstrap.launch+' --debug',files:[{name:'bootstrap.sh',content:'#!/bin/bash\necho create-updated'}]});
+  assert.equal(submissions[0].environments[1].bootstrap.external,true);
+  assert.equal(submissions[0].environments[1].bootstrap.path,'/mnt/share/c00814587/start-docker-A3.sh');
+  assert.deepEqual(submissions[0].environments[1].bootstrap.args,['${image}','${container_name}']);
+ }finally{await page.close();}
 });
 
 test('ordinary requests remain debug-only and changing PR while resolving cannot keep the old snapshot', async () => {

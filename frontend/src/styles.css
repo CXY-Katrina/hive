@@ -2862,3 +2862,20 @@ tbody tr:last-child td {
 .workflow-block .workflow-tabs button[aria-selected="true"] { background: #edf4e7; }
 .workflow-environment-row { grid-template-columns: minmax(140px,.8fr) minmax(180px,1fr) minmax(200px,1.5fr); }
 @media(max-width:800px) { .workflow-lifecycle { grid-template-columns: 1fr; } .workflow-environment-row { grid-template-columns: 1fr; } }
+
+.file-content-editor { min-height: 340px; max-height: 65vh; resize: vertical; white-space: pre; overflow: auto; }
+.workflow-file-navigation { display: flex; flex-direction: column; align-items: flex-start; max-height: 160px; overflow: auto; }
+
+.artifact-target-picker { position: relative; }
+.artifact-target-picker > summary { border: 1px solid var(--border); padding: 9px; cursor: pointer; border-radius: 6px; background: white; }
+.artifact-target-options { position: absolute; top: 100%; left: 0; z-index: 8; min-width: 100%; max-height: 240px; overflow: auto; background: white; border: 1px solid #c4d6c7; padding: 10px; box-shadow: 0 8px 20px #15392322; }
+.artifact-target-options label { display: flex; align-items: center; gap: 8px; padding: 7px; white-space: nowrap; }
+.artifact-target-options input[type=checkbox] { width: 16px; height: 16px; }
+
+.workflow-image-picker { min-width: 0; }
+.workflow-image-picker details { margin-top: 8px; }
+.image-tag-options { display: flex; flex-direction: column; align-items: flex-start; max-height: 200px; overflow: auto; }
+.image-tag-options button { overflow-wrap: anywhere; text-align: left; }
+
+.workflow-bootstrap { margin: 14px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; }
+.workflow-bootstrap > summary { cursor: pointer; font-weight: 600; }

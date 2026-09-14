@@ -149,10 +149,13 @@ class WorkflowHTTP(unittest.TestCase):
         self.assertEqual(self.client.get('/api/workflows/' + task['id']).json()['status'], 'CANCELLED')
         self.assertEqual(self.s.resources.get(req['id'])['status'], 'RELEASING')
 
-    def test_submission_freezes_verified_pr_files_and_rejects_modified_code(self):
+    def test_submission_freezes_edited_pr_files_and_rejects_forged_source(self):
         changed = payload()
         changed['jobs'][0]['steps'][0]['uploaded_content'] = 'echo changed'
-        self.assertEqual(self.client.post('/api/workflows', json=changed).status_code, 422)
+        changed['idempotency_key'] = 'edited-pr-file'
+        edited = self.client.post('/api/workflows', json=changed)
+        self.assertEqual(edited.status_code, 201, edited.text)
+        self.assertEqual(edited.json()['spec']['files']['scripts/job.sh']['content'], 'echo changed')
         forged = payload()
         forged['source']['head_sha'] = 'c' * 40
         self.assertEqual(self.client.post('/api/workflows', json=forged).status_code, 409)
@@ -347,14 +350,19 @@ class WorkflowHTTP(unittest.TestCase):
         scripts = [a['script'] for a in remote.attempts.values() if '# HIVE_PHASE steps' in a['script']]
         self.assertTrue(any('job.sh' in script and '10.0.0.1' in script and '$MY_PORT' in script for script in scripts))
 
-    def test_upload_changed_execution_code_or_yaml_without_command_rejects(self):
-        for step in [{'launch': 'bash job.sh', 'files': [{'name': 'job.sh', 'content': 'echo changed'}]},
-                     {'files': [{'name': 'test.yaml', 'content': 'message: config'}]}]:
-            body = payload()
-            body['jobs'][0]['steps'] = [step]
-            response = self.client.post('/api/workflows', json=body)
-            self.assertEqual(response.status_code, 422, response.text)
+    def test_edited_execution_script_is_frozen_and_yaml_still_needs_command(self):
+        body = payload()
+        body['jobs'][0]['steps'] = [{'files': [{'name': 'test.yaml', 'content': 'message: config'}]}]
+        self.assertEqual(self.client.post('/api/workflows', json=body).status_code, 422)
         self.assertEqual(self.client.get('/api/requests').json(), [])
+        body['jobs'][0]['steps'] = [{'launch': 'bash job.sh', 'files': [{'name': 'job.sh', 'content': 'echo changed'}]}]
+        response = self.client.post('/api/workflows', json=body)
+        self.assertEqual(response.status_code, 201, response.text)
+        frozen = response.json()['spec']['files']['job.sh']
+        self.assertEqual(frozen['content'], 'echo changed')
+        self.assertTrue(frozen['modified'])
+        self.assertEqual(frozen['origin'], 'user_upload')
+        self.assertEqual(frozen['base_sha256'], hashlib.sha256(FILES['scripts/job.sh'].encode()).hexdigest())
 
     def test_allocated_node_mapping_and_dynamic_ip_are_frozen_for_reuse(self):
         node = self.s.inventory.create(SYSTEM, {'name': 'test-node', 'host': '10.0.0.1', 'password': 'test-only', 'generation': 'A2', 'model': 'test'})

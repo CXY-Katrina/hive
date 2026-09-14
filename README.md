@@ -510,15 +510,15 @@ Set-Location ..
 
 ## 12. 任务编排与容器执行
 
-“机器申请”从上到下展示机器资源、任务环境、任务 Jobs；多个环境和多个 job 分别使用 Tab。任务名默认为创建时间，可以修改。代码来源支持 vllm-project/vllm-ascend PR 或完整 commit；预置只需记录 commit 和 nightly YAML 路径。提交时读取固定提交中的 `.github/vllm-main-verified.commit`，冻结对应的 vLLM SHA、执行文件和输入摘要。普通 PR 使用 head；nightly 基线可以使用已合并 PR 的 merge 提交，记录 `revision=merged`。PR 更新后需要重新解析再提交，已提交任务不随 PR 自动变化。
+“机器申请”从上到下展示机器资源、任务环境、任务 Jobs；多个环境和多个 job 分别使用 Tab。任务名默认为创建时间，可以修改。代码来源支持 vllm-project/vllm-ascend 的 **main、PR 或完整 commit**。载入公共预置默认解析 main，读取该提交的 nightly YAML 和 `.github/vllm-main-verified.commit`，显示实际执行的 Ascend/vLLM SHA。预置卡上的 commit 仍是编制用例时的来源记录。解析或 YAML 获取失败时禁止提交；main/PR 已变化时需要重新解析，已提交任务始终使用冻结提交。
 
 当前浏览器按用户名自动保存完整申请草稿到 IndexedDB，包括上传的文本文件；切换页面、刷新后可继续编辑。草稿仅存在当前浏览器，不跨设备同步。成功提交后清除草稿；空间引用在提交时仍由服务端校验。无需增加数据库或前端依赖。
 
-每个任务包含多个 job，依赖只通过作业图连线设置，连线旁提供删除按钮。图中显示已添加的前处理和后处理；点击 + 才展开相应文件与启动命令。每个 job 默认超时 **10 分钟**，可修改。文件直接多选上传，支持 Shell、Python、YAML；另有“启动命令”用于调用脚本。预置接入脚本独立维护在 `preset_tasks/<任务目录>/`，载入时携带脚本内容，提交时与归档逐字节核对。其他上传 Shell/Python 需与固定上游提交中的文件一致；相同文件名在 PR 中重名时，可以将上传名称补成 PR 相对路径。YAML 可覆盖配置内容，由启动命令指定外部 runner；Hive 不解释业务 YAML。未填写启动命令时按上传顺序运行 Shell/Python 文件。
+每个任务包含多个 job，依赖通过作业图连线设置。前处理、主执行、就绪检查、后处理各自关联具名 Shell/Python/YAML 附件，点击文件旁的“编辑”查看并修改全文；保存会同步当前任务内所有同名附件。启动命令显示如何调用文件，模型、数据集、压测参数在预置的 YAML 中修改。每个 job 默认超时 10 分钟，可修改。提交时冻结实际编辑内容、SHA-256 与原文件摘要；不会修改公共归档或上游代码。上传上游文件可使用相对路径消除重名，YAML 由附件中的业务 runner 处理，Hive 不解释业务配置。
 
 每个环境配置容器代称、镜像和一个或多个节点代称，不需要选择服务端/客户端角色。同一环境选 node0、node1 时分别创建独立容器；两个环境都选 node0 时在同一机器创建两个容器。安装/核验通过上传文件与启动命令完成。job 默认在其环境的所有节点分别执行，也可选择其中部分节点；纯请求客户端可以选 0 张 NPU。服务 job 需提供就绪检查，依赖等待所有上游实例 ready，普通 job 等待所有上游实例 succeeded。无依赖且卡不冲突的 job 可以并行，同一宿主机最多 4 个运行 job。端口和普通环境变量由脚本自行配置。现有启动脚本映射所有卡，实际使用范围仍依赖团队遵守分配规则。
 
-安装环境可由多个任务复用。同一运行空间继续持有原资源申请，后续任务可选择该空间。当前复用要求 Ascend/vLLM SHA 和安装配置相同，支持替换测试 YAML；改变安装代码或依赖时新建空间。默认所有任务结束后关闭环境并归还资源；勾选保留后按页面时长保留，并可主动关闭。取消单个任务不会关闭其他任务使用的环境，关闭空间会取消其中未结束任务。关闭结果不明确时继续保留资源并显示原因。
+安装环境可由多个任务复用。“复用已有环境”先选择本人的已就绪运行空间，列表显示实际服务器 IP 和容器名，再为 job 选择其中的环境及节点；不重复申请机器或安装依赖，代码版本沿用该空间。新任务默认保留环境 **3 天**，可按天调整（最多 7 天）或选择“结束即释放”。复用提交也会更新保留时长，以最近一次提交的选择为准，从空间内所有任务结束后计时；正在运行的任务不会因另一个任务结束而被释放。取消单个任务不关闭其他任务正在使用的环境，关闭结果不明确时保留资源并显示原因。
 
 ### 12.1 部署与依赖
 
@@ -532,17 +532,17 @@ npm.cmd --prefix frontend run build
 
 按上文已有 Windows 启动方式重新启动。新增的工作流和预置表随 `migrate` 自动建立；不会导入机器密码、历史数据或示例任务。没有 Redis、Celery、Slurm、节点 agent 或中心机 YAML 解析依赖。Playwright 仅用于开发验证，不是运行服务所需依赖。
 
-节点需要已有 SSH、Docker、Bash、`flock`、`timeout`、`setsid`、`ps`、`sha256sum`、`base64` 等基础工具。容器也需这些进程控制工具及 Git；Python 入口还需对应解释器。业务依赖全部由所选镜像和 PR 安装入口负责，Hive 不会在裸机安装 CANN、PyTorch 或测试工具。
+节点需要已有 SSH、Docker、Bash、Python 3、`flock`、`timeout`、`setsid`、`ps`、`sha256sum`、`base64` 等基础工具。目录快照使用 Python 标准库打包，无需安装节点 agent 或额外服务。容器需 Python 3、进程控制工具及 Git。业务依赖由所选镜像和任务安装脚本负责，Hive 不会在裸机安装 CANN、PyTorch 或测试工具。
 
-当前登记的外部引导入口是 `/mnt/share/c00814587/start-docker-A3.sh`，参数为镜像和容器名。它需要节点已有镜像；Hive 固定镜像 ID 后调用，不自动拉取猜测的镜像。入口也可引用 PR 中的文件。容器创建是宿主机引导步骤；其余业务步骤均在绑定的容器中运行。启动器需在时限内同步返回，退出 0 表示指定容器已创建；不要让启动器在返回后另起延迟创建容器的后台工作。
+镜像输入支持本机名称、资源映射别名，以及从 [Quay vllm-ascend 标签](https://quay.io/repository/ascend/vllm-ascend?tab=tags) 分页选择；中心机需要访问 quay.io 的公开标签 API。优先使用节点已有镜像；仅明确选择的 `quay.io/ascend/vllm-ascend:<tag>` 本地缺失时尝试拉取一次，设置 10 分钟时限（另有收尾缓冲），失败显示原因，不无限重拉。节点需能访问 Quay。最终冻结镜像 ID 后启动容器。拉取期间取消需等待已发出操作确认或超时。预置的具名 bootstrap 脚本也可编辑；已有外部入口 `/mnt/share/c00814587/start-docker-A3.sh` 继续兼容，需同步创建容器并返回，不能在返回后延迟创建。
 
 ### 12.2 外部脚本参数与结果
 
-参数数组支持 `${source_dir}`、`${image}`、`${container_name}`、`${ascend_sha}`、`${vllm_sha}`、`${task_id}`、`${job_id}`、`${node0.ip}`、`${port}` 等引用；`${服务jobID.endpoint}` 引用依赖服务的地址。环境准备阶段尚无 job ID，部署脚本应使用环境/节点上下文。
+启动命令、Shell 和 Python 统一使用 `HIVE_` 环境变量：`HIVE_NODE0_IP`、`HIVE_NODE1_IP` 表示各申请节点；`HIVE_HOST_IP`、`HIVE_CONTAINER_NAME` 表示当前执行位置。`HIVE_JOB_NODELIST` 和 `HIVE_JOB_NUM_NODES` 提供空间内全部节点；跨服务使用 `HIVE_JOB_SERVE_NODE0_ENDPOINT` 等变量。采用与 Slurm 注入环境变量相同的方式，但不要求安装 Slurm。旧 `${node0.ip}` 等模板兼容保留；完整变量表、适用阶段和 Shell/Python 示例见 [工作流变量](docs/workflow-variables.md)。
 
 容器内提供 `HIVE_CONTEXT_JSON`、`HIVE_SOURCE_DIR`、`HIVE_PACKAGES_JSON` 和平台分配的 `ASCEND_RT_VISIBLE_DEVICES`。安装入口读取包名、版本和来源等输入，自行完成安装及核验；客户端的包列表独立于服务端。未提供安装脚本或软件包链接时，平台不会凭版本号推测安装命令。
 
-每项产物配置环境/容器与节点目标（可多选）、名称和容器内绝对路径，一行一项。不同节点或容器的相同路径分别归档；一个明确目标不会因多个 job 实例重复归档。不要求选择文件类型。普通文件原样保存；包含 metrics 字段的 JSON 按下述通用协议校验展示，Hive 不计算业务指标或阈值：
+每项产物默认选择该 job 环境的所有节点，也可在下拉框按“服务器 / 容器”多选其他已配置目标；增加节点时默认目标同步扩展。配置名称和容器内绝对路径，一行一项，可用 `${HIVE_TASK_ID}` / `${HIVE_JOB_ID}` 隔离目录。普通文件原样保存，目录自动打包为 `tar.gz` 下载；不同节点/容器分别归档，同一目标不会因多个 job 实例重复收集。Qwen3 预置同时保留 AISBench 完整 outputs 结果树及摘要 JSON/CSV。包含 metrics 字段的 JSON 按下述通用协议展示，Hive 不计算业务指标或阈值：
 
 ```json
 {
@@ -555,7 +555,7 @@ npm.cmd --prefix frontend run build
 
 `verdict` 支持 `passed`、`failed`、`unknown`。缺失时显示“业务判定未提供”，不会把步骤退出 0 当作性能/精度达标。外部失败判定不会被后置脚本成功覆盖。上例只说明数据格式，不是示例测试结果。
 
-每个执行阶段最多保留 20 MiB 原始日志，网页展示尾部并支持下载完整归档；达到上限会标记截断。每项产物最多 4 MiB、每个 job 最多 16 项/总计 16 MiB。归档存放在 `HIVE_DATA_DIR` 下的 `workflow-logs` 和 `workflow-artifacts`，不写入 Git。当前不自动删除归档，需要部署者为该目录预留容量和备份。
+每个执行阶段最多保留 20 MiB 原始日志，达到上限标记截断。单文件产物最多 4 MiB；目录原始大小和压缩后大小均最多 256 MiB、最多 10,000 个条目，拒绝符号链接和特殊文件。每个逻辑 job 最多配置 16 条路径；每个执行实例归档总量最多 512 MiB。超限或确定的归档冲突会使 job 失败，保留已保存的原始下载；连接或身份不明确时等待核验。归档存放在 `HIVE_DATA_DIR/workflow-logs` 和 `workflow-artifacts`，不写入 Git，不随容器释放删除，目前由部署者管理容量与备份。
 
 ### 12.3 nightly / weekly 预置接入
 
@@ -563,7 +563,7 @@ npm.cmd --prefix frontend run build
 
 每个目录包含 `source.json`（上游完整 commit、nightly YAML 路径、预置人员及脚本清单）、`workflow.json`（资源、环境及 job 定义）、独立 Shell/Python/YAML 接入文件与测试。API 从当前仓库读取目录；无需导入历史数据库，新设备部署也能看到这一个预置。提交时冻结脚本内容和 SHA-256，不覆盖上游文件，已提交任务不随归档更新变化。维护文件后重新载入配置，修改 Hive 代码走 Hive 仓库提交。
 
-任何已登录用户都能载入预置并在任务编辑器查看、修改环境和 job；预置卡不再展示任务配置 JSON。来源展示仅有 vllm-ascend commit、nightly YAML 路径和预置人员（本样例为 `admin`）。载入与性能验收结果分开，**可载入不代表测试通过**；实际提交仍要求管理员授予资源申请权限。可通过“另存新用例”保存私人参数副本，保留原代码版本与父预置，本人及管理员可见。
+任何已登录用户都能载入预置并在任务编辑器查看、修改环境和 job；预置卡只显示 vllm-ascend commit、nightly YAML 路径和预置人员。“另存新用例”保存当前代码选择、编辑后的脚本、YAML 及父预置关系，本人及管理员可见。重新载入私人副本不会用公共脚本覆盖个人修改；可再改参数生成新用例。**可载入不代表测试通过**，提交仍需资源申请权限。
 
 相同 nightly 的历史调测发布不会重复出现在公共列表；历史任务、日志、结果和冻结配置保留。旧 PR JSON 清单导入接口继续兼容，但不再作为本样例的维护方式；旧数据库条目的执行批准规则保留，本地归档样例可直接载入提交。其余 nightly/weekly 暂不批量接入。
 
@@ -586,7 +586,7 @@ npm.cmd --prefix frontend run build
 
 首次分配时冻结每台节点的映射版本，环境复用继续使用该快照。管理员后续修改用于新空间，避免运行中的任务突然指向其他文件。一个节点最多 128 条、合计 16 KiB；并发编辑使用版本号检查，冲突时重新读取。
 
-平台预置 `HIVE_NODE0_IP`、`HIVE_NODE1_IP` 等所有分配节点的实际 IP；`HIVE_HOST_IP` / `${host}` 始终是当前实例所在服务器，`HIVE_CONTAINER_NAME` / `${container_name}` 是当前真实容器名。启动命令可用 `${node0.ip}`、`${node1.ip}` 访问任意已申请节点。Python 可读取 `HIVE_NODES_JSON` 获取全部节点上下文。多节点服务使用 `${服务jobID.node0.endpoint}` 指定目标实例；同节点的简写 `${服务jobID.endpoint}` 指向本节点实例，无同节点且存在多个实例时必须写明节点。普通 Bash 变量及端口由用户脚本管理。
+平台通过环境变量传递动态节点和容器信息，具体名称与多节点示例统一见 [工作流变量](docs/workflow-variables.md)。节点列表属于当前运行空间；同一环境跨多个节点时，脚本在每个实际容器内独立执行，`HIVE_HOST_IP` 随当前实例变化。普通 Bash 变量及自定义端口仍由用户脚本管理。
 
 Bash 入口可用 `hive_resource model 组织/权重名`、`hive_resource dataset 组织/数据集名`、`hive_resource package 包别名` 查询本环境冻结的实际路径；不存在的映射返回非零退出码。Python 入口读取 `os.environ["HIVE_RESOURCE_MAP_JSON"]`，JSON 结构为 `{"model":{},"dataset":{},"image":{},"package":{}}`，每类按逻辑名称索引。平台只提供通用路径解析，各预置的接入及校验脚本维护在独立任务目录，上游 YAML 按固定 commit 读取。
 

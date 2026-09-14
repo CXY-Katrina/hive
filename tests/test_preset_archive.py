@@ -19,7 +19,7 @@ class ArchiveHTTPTests(unittest.TestCase):
     tearDownClass = classmethod(preset_tests.PresetHTTPTests.tearDownClass.__func__)
     setUp = preset_tests.PresetHTTPTests.setUp
 
-    def test_reloading_personal_variant_refreshes_archived_scripts_and_keeps_parameters(self):
+    def test_reloading_personal_variant_preserves_edited_scripts_and_main_source(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             case = root / 'sample'
@@ -36,14 +36,18 @@ class ArchiveHTTPTests(unittest.TestCase):
             self.client.cookies.set('hive_session', self.tokens['alice'])
             parent = self.client.get('/api/presets').json()[0]
             parent['workflow']['jobs'][0]['timeout_seconds'] = 120
+            parent['workflow']['environments'][0]['install'][0]['files'][0]['content'] = 'print("personal")\n'
+            parent['workflow']['source'] = {'revision': 'branch', 'branch': 'main', 'head_sha': '3' * 40, 'vllm_sha': '4' * 40}
             saved = self.client.post('/api/presets/' + parent['id'] + '/derive', json={
                 'name': 'My case', 'tags': {}, 'workflow': parent['workflow']})
             self.assertEqual(saved.status_code, 201, saved.text)
             (case / 'run.py').write_bytes(b'print("v2")\n')
             variant = next(row for row in self.client.get('/api/presets').json() if row['id'] == saved.json()['id'])
-            self.assertEqual(variant['workflow']['environments'][0]['install'][0]['files'][0]['content'], 'print("v2")\n')
+            self.assertEqual(variant['workflow']['environments'][0]['install'][0]['files'][0]['content'], 'print("personal")\n')
+            self.assertEqual(variant['source']['branch'], 'main')
+            self.assertEqual(variant['workflow']['source']['head_sha'], '3' * 40)
             self.assertEqual(variant['workflow']['jobs'][0]['timeout_seconds'], 120)
-            self.assertTrue(variant['archive_refreshed'])
+            self.assertNotIn('archive_refreshed', variant)
             self.assertEqual(variant['yaml_path'], 'tests/e2e/nightly/sample.yaml')
 
     def test_one_nightly_archive_is_loadable_by_unprivileged_user_without_github(self):
@@ -97,6 +101,10 @@ class ArchiveWorkflowHTTP(unittest.TestCase):
                 value = {'sha': head}
             elif '/contents/.github/vllm-main-verified.commit?ref=' + head in request.full_url:
                 value = github_file('.github/vllm-main-verified.commit', vllm + '\n')
+            elif '/contents/' + row['yaml_path'] + '?ref=' + head in request.full_url:
+                value = github_file(row['yaml_path'], (Path('preset_tasks/qwen3-30b-a3b-w8a8/case.yaml')).read_text(encoding='utf-8'))
+            elif '/git/trees/' + head in request.full_url:
+                value = {'tree': [{'path': row['yaml_path'], 'type': 'blob', 'mode': '100644'}], 'truncated': False}
             else:
                 raise AssertionError('Unexpected upstream request: ' + request.full_url)
             return io.BytesIO(json.dumps(value).encode())
@@ -109,16 +117,20 @@ class ArchiveWorkflowHTTP(unittest.TestCase):
         self.assertEqual(len(task['jobs']), 3)
         self.assertNotIn('pr', task['spec']['source'])
         files = task['spec']['files']
-        self.assertEqual(len(files), 3)
-        self.assertTrue(all(f['origin'] == 'hive_archive' and f['uploaded'] for f in files.values()))
-        self.assertTrue(all(name.startswith('hive_presets/qwen3-30b-a3b-w8a8/') for name in files))
+        self.assertGreaterEqual(len(files), 17)
+        helpers = {name: file for name, file in files.items() if name.startswith('hive_presets/qwen3-30b-a3b-w8a8/')}
+        self.assertTrue(all(f['origin'] == 'hive_archive' and f['uploaded'] for f in helpers.values()))
+        self.assertEqual(files[row['yaml_path']]['origin'], 'upstream')
         self.assertFalse(any('/pulls/' in url or '/tools/' in url for url in calls))
         changed = copy.deepcopy(body)
         changed['idempotency_key'] = 'changed-archive'
         changed['environments'][0]['install'][0]['files'][0]['content'] += '\nprint("changed")\n'
         stale = self.client.post('/api/workflows', json=changed)
-        self.assertEqual(stale.status_code, 409, stale.text)
-        self.assertIn('归档不一致', stale.json()['detail'])
+        self.assertEqual(stale.status_code, 201, stale.text)
+        edited_name = changed['environments'][0]['install'][0]['files'][0]['name']
+        self.assertTrue(stale.json()['spec']['files'][edited_name]['modified'])
+        self.assertEqual(stale.json()['spec']['files'][edited_name]['base_sha256'], files[edited_name]['sha256'])
+        self.assertEqual(self.client.get('/api/workflows/' + task['id']).json()['spec']['files'][edited_name], files[edited_name])
 
     def test_ordinary_user_can_derive_archive_without_resource_permission(self):
         row = next(r for r in self.client.get('/api/presets').json() if r.get('origin') == 'archive')

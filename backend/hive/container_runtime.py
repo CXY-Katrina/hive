@@ -154,6 +154,64 @@ class ContainerRuntime:
                 return bytes(raw)
         raise DomainError('Artifact exceeds the supported size limit',422)
 
+    def export_artifact(self, node, identity, path, destination, max_archive_bytes=256 * 1024 * 1024):
+        """Keep legacy file reads; stream an immutable directory snapshot to disk."""
+        _require(type(max_archive_bytes) is int and 0 <= max_archive_bytes <= 256 * 1024 * 1024,
+                 'Invalid directory archive size limit')
+        try:
+            raw = self.read_file(node, identity, path, max_bytes=min(4 * 1024 * 1024, max_archive_bytes))
+        except DomainError as error:
+            if error.code != 422 or str(error) != 'Artifact is not a regular file':
+                raise
+        else:
+            with Path(destination).open('xb') as output:
+                output.write(raw)
+            return {'format': 'file', 'size': len(raw), 'sha256': hashlib.sha256(raw).hexdigest()}
+        program = (SCRIPTS / 'artifact_snapshot.py').read_text(encoding='utf-8')
+
+        def command(*args, timeout=30):
+            return self._exec(node, identity, 'timeout --signal=TERM --kill-after=5s '
+                              + ('110s' if args[0] == 'create' else '20s')
+                              + ' python3 - ' + shlex.join(map(str, args))
+                              + " <<'HIVE_ARTIFACT_PY'\n" + program + '\nHIVE_ARTIFACT_PY\n', timeout=timeout)
+
+        token = None
+        try:
+            info = json.loads(command('create', path, max_archive_bytes, timeout=120))
+            if isinstance(info, dict) and info.get('error'):
+                reason = info['error']
+                if reason in {'UNSAFE_PATH', 'SPECIAL_FILE', 'OVERSIZED', 'TOO_MANY_ENTRIES', 'TOO_DEEP', 'CHANGED',
+                              'MISSING_OR_UNSAFE_PATH'}:
+                    raise DomainError('Directory artifact rejected: ' + reason, 422)
+                raise DomainError('Directory artifact snapshot could not be confirmed', 503)
+            if not isinstance(info, dict) or not re.fullmatch(r'[0-9a-f]{32}', str(info.get('token', ''))):
+                raise ValueError()
+            token = info['token']
+            if (set(info) != {'token','size','sha256','unpacked_size','entry_count'}
+                    or type(info.get('size')) is not int or not 0 < info['size'] <= max_archive_bytes
+                    or type(info.get('unpacked_size')) is not int or not 0 <= info['unpacked_size'] <= max_archive_bytes
+                    or type(info.get('entry_count')) is not int or not 1 <= info['entry_count'] <= 10000
+                    or not HEX64.fullmatch(str(info.get('sha256', '')))):
+                raise ValueError()
+            digest, offset = hashlib.sha256(), 0
+            with Path(destination).open('xb') as output:
+                while offset < info['size']:
+                    block = base64.b64decode(command('read', token, offset), validate=True)
+                    if len(block) != min(1024 * 1024, info['size'] - offset):
+                        raise ValueError()
+                    digest.update(block)
+                    output.write(block)
+                    offset += len(block)
+            if digest.hexdigest() != info['sha256']:
+                raise ValueError()
+            return {key: value for key, value in dict(info, format='tar.gz').items() if key != 'token'}
+        except (ValueError, TypeError, binascii.Error):
+            raise DomainError('Directory artifact transfer is incomplete or its digest changed', 503) from None
+        finally:
+            if token:
+                if command('drop', token) != 'REMOVED':
+                    raise DomainError('Directory snapshot cleanup could not be confirmed',503)
+
     def inspect(self, node, container_name):
         _require(isinstance(container_name, str) and NAME.fullmatch(container_name), 'Invalid container name')
         output = self._run(node, "set -euo pipefail\nprintf 'HIVE_CONTAINER_V1\\n'\n"

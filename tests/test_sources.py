@@ -49,6 +49,24 @@ class FakeGitHub:
 
 
 class SourceHTTPTests(unittest.TestCase):
+    def test_main_branch_is_resolved_and_preview_rejects_branch_movement(self):
+        self.github.responses[f'{API}/commits/main'] = {'sha': HEAD}
+        result = self.client.post('/api/sources/resolve', json={'branch': 'main'})
+        self.assertEqual(result.status_code, 200, result.text)
+        source = result.json()
+        self.assertEqual(source['branch'], 'main')
+        self.assertEqual(source['head_sha'], HEAD)
+        self.assertEqual(source['vllm_sha'], VLLM)
+        self.assertNotIn('pr', source)
+        path = 'tests/nightly/case.yaml'
+        self.github.responses[f'{API}/contents/{path}?ref={HEAD}'] = github_file(path, 'batch_size: 45\n')
+        self.assertEqual(self.client.post('/api/sources/file', json={'source': source, 'path': path}).status_code, 200)
+        newer = '3' * 40
+        self.github.responses[f'{API}/commits/main'] = {'sha': newer}
+        self.github.responses[f'{API}/contents/{COMMIT_FILE}?ref={newer}'] = github_file(COMMIT_FILE, VLLM + '\n')
+        response = self.client.post('/api/sources/file', json={'source': source, 'path': path})
+        self.assertEqual(response.status_code, 409, response.text)
+
     def test_commit_source_resolves_without_pr_and_previews_original_yaml(self):
         path = 'tests/e2e/nightly/case.yaml'
         self.github.responses[f'{API}/commits/{HEAD}'] = {'sha': HEAD}

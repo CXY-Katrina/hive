@@ -37,10 +37,16 @@ class PresetArchive:
             content = raw.decode('utf-8')
         except (OSError, ValueError, KeyError):
             raise DomainError('预置脚本不在本地任务归档中', 422) from None
-        if uploaded is not None and uploaded != content:
-            raise DomainError('上传脚本与 Hive 任务归档不一致，请更新归档后重新载入', 409)
+        original_sha = hashlib.sha256(raw).hexdigest()
+        modified = uploaded is not None and uploaded != content
+        if uploaded is not None:
+            raw = uploaded.encode('utf-8')
+            if len(raw) > 262144 or b'\0' in raw:
+                raise DomainError('编辑的脚本须为 UTF-8 文本且最多 256 KiB', 422)
+            content = uploaded
         return {'path': path, 'content': content, 'sha256': hashlib.sha256(raw).hexdigest(),
-                'size': len(raw), 'uploaded': True, 'origin': 'hive_archive'}
+                'size': len(raw), 'uploaded': True, 'origin': 'user_upload' if modified else 'hive_archive',
+                'base_sha256': original_sha, 'modified': modified}
 
     def list(self):
         rows, seen = [], set()
@@ -60,15 +66,36 @@ class PresetArchive:
             workflow = json.loads(workflow_path.read_text(encoding='utf-8'))
             workflow['source'] = source
             # Freeze the maintained files through the same upload boundary as UI scripts.
-            files = [self.file(PREFIX + directory.name + '/' + name) for name in metadata['helper_files']]
-            workflow['environments'][0]['install'][0]['files'] = [
-                {'name': file['path'], 'content': file['content']} for file in files]
+            files = {PREFIX + directory.name + '/' + name: self.file(PREFIX + directory.name + '/' + name)['content']
+                     for name in metadata['helper_files']}
+            for upstream_path, local_name in metadata.get('input_files', {}).items():
+                if not re.fullmatch(r'[A-Za-z0-9_.-]+\.(?:yaml|yml)', local_name) or (directory / local_name).is_symlink():
+                    raise DomainError('预置 YAML 归档路径无效', 500)
+                files[upstream_path] = (directory / local_name).read_text(encoding='utf-8')
+            referenced = set()
+            def hydrate(value):
+                if isinstance(value, list):
+                    for child in value:
+                        hydrate(child)
+                elif isinstance(value, dict):
+                    for file in value.get('files', []):
+                        if file['name'] in files:
+                            file['content'] = files[file['name']]
+                            referenced.add(file['name'])
+                    for key, child in value.items():
+                        if key != 'files':
+                            hydrate(child)
+            hydrate(workflow)
+            missing = [{'name': name, 'content': content} for name, content in files.items() if name not in referenced]
+            if missing:
+                workflow['environments'][0]['install'][0].setdefault('files', []).extend(missing)
             item_id = metadata.get('id', directory.name)
             rows.append({'id': str(uuid5(NAMESPACE_URL, 'hive:preset:' + yaml)), 'item_id': item_id,
                          'name': metadata.get('name', workflow['name']), 'scope': 'public', 'origin': 'archive',
                          'enabled': True, 'loadable': True, 'validation_status': 'unverified',
                          'reason': '可载入并修改；实际结果以每次执行记录为准。',
                          'created_by': metadata['created_by'], 'imported_by': metadata['created_by'],
+                         'default_ref': metadata.get('default_ref', 'main'),
                          'yaml_path': yaml, 'path': 'preset_tasks/' + directory.name,
                          'tags': metadata.get('tags', {}), 'source': source, 'workflow': workflow,
                          'sha256': hashlib.sha256(encode(workflow).encode()).hexdigest()})

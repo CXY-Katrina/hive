@@ -60,6 +60,8 @@ def create_app(services=None, settings=None):
     register_source_routes(app, services, current, respond)
     from .presets_api import register_preset_routes
     register_preset_routes(app, services, current, respond)
+    from .image_catalog import ImageCatalog, register_image_routes
+    register_image_routes(app, ImageCatalog(), current, respond)
 
     @app.get("/api/health")
     def health():

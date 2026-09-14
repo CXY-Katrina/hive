@@ -11,7 +11,20 @@
   "helper_files": [
     "nightly_cli.py",
     "nightly_environment.py",
-    "aisbench_config.py"
+    "aisbench_config.py",
+    "common.sh",
+    "bootstrap.sh",
+    "install_server.sh",
+    "install_client.sh",
+    "verify_server_environment.sh",
+    "verify_client_environment.sh",
+    "serve_prepare.sh",
+    "serve.sh",
+    "serve_ready.sh",
+    "aisbench_prepare.sh",
+    "aisbench.sh",
+    "verify_prepare.sh",
+    "verify.sh"
   ],
   "upload_prefix": "hive_presets/qwen3-30b-a3b-w8a8/",
   "id": "Qwen3-30B-A3B-W8A8",
@@ -30,5 +43,9 @@
     "batch_size": "45",
     "tensor_parallel": "1",
     "generation": "A3"
-  }
+  },
+  "input_files": {
+    "tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml": "case.yaml"
+  },
+  "default_ref": "main"
 }

@@ -141,8 +141,8 @@ class Artifact(Input):
 
     @model_validator(mode='after')
     def valid_path(self):
-        if '${' in self.path.replace('${task_id}', '').replace('${job_id}', ''):
-            raise ValueError('产物路径只支持 ${task_id} 和 ${job_id} 模板')
+        if '${' in re.sub(r'\$\{(?:task_id|job_id|HIVE_TASK_ID|HIVE_JOB_ID)\}', '', self.path):
+            raise ValueError('产物路径只支持 HIVE_TASK_ID 和 HIVE_JOB_ID（兼容旧 task_id / job_id）')
         if self.environment and self.targets:
             raise ValueError('产物请使用环境或精确节点目标中的一种')
         if len({(target.environment, target.node_alias) for target in self.targets}) != len(self.targets):
@@ -197,6 +197,15 @@ class WorkflowCreate(Input):
         jobs = {j.id: j for j in self.jobs}
         if len(jobs) != len(self.jobs):
             raise ValueError('job ID 不能重复')
+        variable_owners = {}
+        for job in self.jobs:
+            nodes = job.node_aliases or (envs[job.environment].node_aliases if job.environment in envs else
+                                        ['node' + str(i) for i in range(64)])
+            for alias in [job.id] + [job.id + '.' + node for node in nodes]:
+                variable = re.sub(r'[^A-Za-z0-9]', '_', alias).upper()
+                if variable in variable_owners and variable_owners[variable] != alias:
+                    raise ValueError('job 名称转换为 environment variable 后冲突，请修改 job ID')
+                variable_owners[variable] = alias
         for job in self.jobs:
             if self.environments and job.environment not in envs:
                 raise ValueError('job 引用了不存在的环境')

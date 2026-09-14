@@ -138,26 +138,6 @@ class Presets:
             parent = self.archive.get(value['root_id'])
             if parent:
                 value['yaml_path'] = parent['yaml_path']
-            def refresh(node):
-                if isinstance(node, list):
-                    for child in node:
-                        refresh(child)
-                elif isinstance(node, dict):
-                    for file in node.get('files', []):
-                        current = self.archive.file(file['name'])
-                        if current and current['content'] != file['content']:
-                            file['content'] = current['content']
-                            value['archive_refreshed'] = True
-                    for key, child in node.items():
-                        if key != 'files':
-                            refresh(child)
-            try:
-                refresh(value['workflow'])
-            except DomainError:
-                value.update(loadable=False, reason='此副本引用的归档脚本已移除，请从当前公共预置重新创建副本')
-            if value.get('archive_refreshed'):
-                value['reason'] = '已载入当前归档脚本，保留个人参数；需要重新执行验证'
-                value['loaded_sha256'] = hashlib.sha256(encode(value['workflow']).encode()).hexdigest()
         return value
 
     def derive(self, actor, preset_id, name, tags, workflow):
@@ -175,14 +155,13 @@ class Presets:
             raise DomainError(exc.errors()[0]['msg'], 422) from None
         if parsed.space_id:
             raise DomainError('新用例需保存机器规格，不绑定已分配运行空间', 422)
-        if any(str(parsed.source.get(k)) != str(parent['source'].get(k)) for k in ('pr','head_sha','vllm_sha')):
-            raise DomainError('参数变体需保留原预置的代码版本', 422)
         config = parsed.model_dump(exclude={'idempotency_key','preset_id','space_id'})
-        config['source'] = parent['source']
+        if all(str(parsed.source.get(k)) == str(parent['source'].get(k)) for k in ('pr', 'head_sha', 'vllm_sha')):
+            config['source'] = {**parent['source'], **parsed.source}
         ident, stamp = uid(), now()
         with self.db.transaction() as c:
             c.execute('INSERT INTO workflow_preset_variants (id,parent_id,root_id,owner_user_id,owner_name,name,tags,workflow,source,sha256,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-                      (ident,preset_id,parent.get('root_id',preset_id),actor.id,actor.username,name,encode(tags),encode(config),encode(parent['source']),hashlib.sha256(encode(config).encode()).hexdigest(),stamp))
+                      (ident,preset_id,parent.get('root_id',preset_id),actor.id,actor.username,name,encode(tags),encode(config),encode(config['source']),hashlib.sha256(encode(config).encode()).hexdigest(),stamp))
             self.db.audit(c,actor,'preset.derive',ident,{'parent_id':preset_id})
         return self.get(ident, actor=actor)
 

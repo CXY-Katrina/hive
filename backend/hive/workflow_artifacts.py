@@ -2,20 +2,31 @@
 import hashlib
 import json
 import math
-from pathlib import Path
+import os
+from pathlib import Path, PurePosixPath
 import re
+from tempfile import TemporaryDirectory
 
 from .domain import DomainError, encode
 
 
 MAX_FILE = 4 * 1024 * 1024
-MAX_TOTAL = 16 * 1024 * 1024
+MAX_ARCHIVE = 256 * 1024 * 1024
+MAX_TOTAL = 512 * 1024 * 1024
 IDENTIFIER = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}')
 
 
 def artifact_key(item):
     namespace = item.get('environment', '')
     return hashlib.sha256(((namespace + ':' if namespace else '') + item['path']).encode()).hexdigest()
+
+
+def file_digest(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as source:
+        for block in iter(lambda: source.read(1024 * 1024), b''):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def metric_document(raw):
@@ -77,8 +88,8 @@ class WorkflowArtifacts:
 
     def collect(self, node, identity, task_id, job_id, items, targets=None):
         self._directory(task_id,job_id)
-        if not isinstance(items,list) or len(items)>16:
-            raise DomainError('每个 job 最多归档 16 个产物',422)
+        if not isinstance(items,list) or len(items)>2048:
+            raise DomainError('每个 job 最多归档 2048 个展开后的节点产物',422)
         items = [{**item, 'kind': item.get('kind', 'auto')} if isinstance(item, dict) else item for item in items]
         seen = set()
         for item in items:
@@ -94,34 +105,43 @@ class WorkflowArtifacts:
             seen.add((item.get('environment', ''), item['path']))
         artifacts, metrics, remaining = [], [], MAX_TOTAL
         for item in items:
-            try:
-                target_node, target_identity = targets[item['environment']] if item.get('environment') else (node, identity)
-                raw = self.runtime.read_file(target_node,target_identity,item['path'],max_bytes=min(MAX_FILE,remaining))
-            except DomainError:
-                raise
-            except Exception:
-                raise DomainError('产物读取失败；未确认归档完整',503) from None
-            if not isinstance(raw,bytes) or len(raw)>min(MAX_FILE,remaining):
-                raise DomainError('产物超过单文件 4 MiB 或总计 16 MiB 上限',422)
-            remaining -= len(raw)
+            if remaining <= 0:
+                raise DomainError('产物超过总计 512 MiB 上限',422)
             artifact_id = artifact_key(item)
-            meta = dict(id=artifact_id,path=item['path'],label=item['label'],kind=item['kind'],
-                        size=len(raw),sha256=hashlib.sha256(raw).hexdigest(),container_id=target_identity['container_id'],
-                        host_boot_id=target_identity['host_boot_id'])
-            if item.get('environment'):
-                meta['environment'] = item['environment']
             directory = self._directory(task_id,job_id,artifact_id)
             directory.mkdir(parents=True,exist_ok=True)
             self._guard(directory)
             content_path, metadata_path = directory/'content', directory/'metadata.json'
             for path in (content_path,metadata_path):
                 self._guard(path)
-            try:
-                with content_path.open('xb') as file:
-                    file.write(raw)
-            except FileExistsError:
-                if not content_path.is_file() or content_path.stat().st_size!=len(raw) or content_path.read_bytes()!=raw:
-                    raise DomainError('同一路径的产物内容已经变化，保留原归档',409) from None
+            with TemporaryDirectory(prefix='.collect-',dir=directory) as temporary:
+                incoming = Path(temporary)/'content'
+                try:
+                    target_node, target_identity = targets[item['environment']] if item.get('environment') else (node, identity)
+                    exported = self.runtime.export_artifact(target_node,target_identity,item['path'],incoming,
+                                                            max_archive_bytes=min(MAX_ARCHIVE,remaining))
+                except DomainError:
+                    raise
+                except Exception:
+                    raise DomainError('产物读取失败；未确认归档完整',503) from None
+                size = incoming.stat().st_size
+                if size != exported['size'] or size > remaining:
+                    raise DomainError('产物超过单目录 256 MiB 或总计 512 MiB 上限',422)
+                remaining -= max(size, exported.get('unpacked_size', size))
+                is_directory = exported['format'] == 'tar.gz'
+                raw = None if is_directory else incoming.read_bytes()
+                meta = dict(id=artifact_id,path=item['path'],label=item['label'],kind=item['kind'],
+                            **exported,container_id=target_identity['container_id'],host_boot_id=target_identity['host_boot_id'],
+                            download_name=PurePosixPath(item['path']).name + ('.tar.gz' if is_directory else ''),
+                            media_type='application/gzip' if is_directory else 'application/octet-stream')
+                if item.get('environment'):
+                    meta['environment'] = item['environment']
+                try:
+                    os.link(incoming,content_path)
+                except FileExistsError:
+                    if (not content_path.is_file() or content_path.stat().st_size!=size
+                            or file_digest(content_path)!=exported['sha256']):
+                        raise DomainError('同一路径的产物内容已经变化，保留原归档',409) from None
             try:
                 with metadata_path.open('x',encoding='utf-8') as file:
                     file.write(encode(meta))
@@ -132,11 +152,15 @@ class WorkflowArtifacts:
                     saved = json.loads(metadata_path.read_text(encoding='utf-8'))
                 except (ValueError,UnicodeError):
                     raise DomainError('原归档元数据无效',409) from None
-                if saved != meta:
+                # Archives created before directory support did not include download hints.
+                legacy = {key: value for key, value in meta.items() if key not in {'format','download_name','media_type'}}
+                if saved != meta and saved != legacy:
                     raise DomainError('产物声明或容器身份与原归档不一致',409) from None
             artifacts.append(meta)
             is_metrics = item['kind'] == 'metrics'
-            if item['kind'] == 'auto':
+            if is_directory and is_metrics:
+                raise DomainError('目录已归档为 tar.gz；metrics 仅支持单个 JSON 文件',422)
+            if item['kind'] == 'auto' and not is_directory:
                 try:
                     document = json.loads(raw)
                     is_metrics = isinstance(document, dict) and 'metrics' in document
@@ -153,12 +177,11 @@ class WorkflowArtifacts:
             self._guard(path)
         if not content.is_file() or not metadata.is_file():
             raise DomainError('归档产物不存在或尚未完整写入',404)
-        if content.stat().st_size>MAX_FILE or metadata.stat().st_size>16384:
+        if content.stat().st_size>MAX_ARCHIVE or metadata.stat().st_size>16384:
             raise DomainError('归档产物大小校验失败',409)
         try:
             saved = json.loads(metadata.read_text(encoding='utf-8'))
-            raw = content.read_bytes()
-            if saved['id']!=artifact_id or saved['size']!=len(raw) or saved['sha256']!=hashlib.sha256(raw).hexdigest():
+            if saved['id']!=artifact_id or saved['size']!=content.stat().st_size or saved['sha256']!=file_digest(content):
                 raise ValueError()
         except (ValueError,KeyError,TypeError):
             raise DomainError('归档产物校验失败',409) from None

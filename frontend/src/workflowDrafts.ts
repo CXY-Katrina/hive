@@ -6,7 +6,7 @@ import { defaultResource } from './components/ResourceForm';
 export interface WorkflowDraft {
   name: string; pr: string; source?: WorkflowSource; environments: WorkflowEnvironment[]; jobs: WorkflowJob[];
   reuse: boolean; spaceId: string; retainMinutes: number; presetId?: string | number; presetName?: string;
-  presetTags?: Record<string, string>; selectedEnvironment: number; selectedJobId?: string;
+  presetYamlPath?: string; presetTags?: Record<string, string>; selectedEnvironment: number; selectedJobId?: string;
 }
 interface RequestDraft { version: 1; resource: ResourceSpec; createTask: boolean; workflow?: WorkflowDraft }
 const memory = new Map<string, RequestDraft>();
