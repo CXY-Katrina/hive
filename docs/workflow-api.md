@@ -40,7 +40,7 @@ Job timeout defaults to 600 seconds; the UI edits minutes. Ports remain a legacy
 
 Node resource mappings use `GET /api/nodes/{id}/mappings` and administrator `PUT {version,entries:[{kind,name,target}]}`. Kinds are model/dataset/image/package. NodeCreate optionally accepts mappings. First allocation freezes version and all entries per node; space environments expose resource_mappings, mappings_version and resolved_image. Image aliases resolve before local image inspection. Mapping edits do not mutate retained environments.
 
-New submissions default to `runtime_variables:"minimal"`: only HIVE_SOURCE_DIR, indexed HIVE_NODE{n}_IP / HIVE_CONTAINER{n}_NAME, HIVE_TASK_ID and HIVE_JOB_ID are platform exports. Already-submitted spaces without this marker keep the legacy variable contract. Bash scripts can call `hive_resource kind name`; Python receives mapping results as explicit arguments. Registered paths must be accessible through the external container startup's mounts.
+New submissions default to `runtime_variables:"minimal"`: only HIVE_SOURCE_DIR, indexed HIVE_NODE{n}_IP / HIVE_CONTAINER{n}_NAME, HIVE_TASK_ID, HIVE_JOB_ID and (with output_layout:"per-job") HIVE_OUTPUT_DIR are platform exports. Already-submitted spaces without this marker keep the legacy variable contract. Bash scripts can call `hive_resource kind name`; Python receives mapping results as explicit arguments. Registered paths must be accessible through the external container startup's mounts.
 
 Upload filename discovery uses GitHub's [Git trees API](https://docs.github.com/en/rest/git/trees#get-a-tree) at the fixed head SHA. Truncated trees are rejected rather than treating partial matches as unique.
 
@@ -78,10 +78,20 @@ Omitted artifact targets resolve to every node in the job environment. Explicit 
 
 ## Simplified composer (2026-09-14, supersedes lifecycle options above)
 
-New tasks always allocate environments and release them after all jobs and cleanup finish. Tabs and graph nodes use job1/job2/job3, independent of business purpose. Historical draft IDs remain internally stable so their old command references are not silently rewritten.
+New tasks always allocate environments and release them after all jobs and cleanup finish. Tabs and graph nodes use job0/job1/job2, independent of business purpose. Historical draft IDs remain internally stable so their old command references are not silently rewritten.
 
-The five public variable groups are documented in [workflow variables](workflow-variables.md). Container numbering follows environment order and numeric node order, globally consistent across all jobs. No endpoint/host/port/image/source-SHA JSON variables are introduced for new tasks; business scripts own those settings.
+The six public variable groups are documented in [workflow variables](workflow-variables.md). Container numbering follows environment order and numeric node order, globally consistent across all jobs. No endpoint/host/port/image/source-SHA JSON variables are introduced for new tasks; business scripts own those settings.
 
-Task files are listed visibly in the composer and are editable, with same-name edits synchronized. The Qwen3 preset shares one task.sh across stages instead of many wrapper scripts. Old drafts without script attachments display an explicit reload notice; restoration recovers missing job environments but does not overwrite edited commands.
+Task files are displayed under their owning steps and are editable, with same-name edits synchronized; there is no global file summary. The Qwen3 preset shares one task.sh across stages instead of many wrapper scripts. Old drafts without script attachments display an explicit reload notice; restoration recovers missing job environments but does not overwrite edited commands.
 
 `post` is labeled “执行后检查”: a script that runs after the main commands, with nonzero exit failing the job. It is not a manual approval gate. Service `ready` checks are separate and unblock downstream jobs only after service readiness succeeds.
+
+## Per-job output directories and public preset management
+
+New submissions default to `output_layout:"per-job"`. Job execution exports `HIVE_OUTPUT_DIR=/var/tmp/hive/outputs/<task_id>/<job_instance_id>` and creates the directory before steps. Artifact paths accept `$HIVE_OUTPUT_DIR` or `${HIVE_OUTPUT_DIR}`; runtime jobs persist resolved absolute paths. This directory is local to the selected container unless shared mounts are configured. Historical spaces without the marker keep their existing execution contract.
+
+- `POST /api/presets/public` (admin): `{name,tags,remarks,yaml_path,workflow,base_preset_id?}`. Creates an unverified public preset; does not allocate resources or execute jobs. Source resolution freezes the supported upstream commit.
+- `PATCH /api/presets/{id}/remarks` (admin): `{remarks}` (up to 4000 characters).
+- Preset list/get responses include `remarks`; null uses tags outside the five primary table fields as default remarks.
+
+Apply schema migration 009 before starting the updated services. Public definitions and remark overlays are stored in MySQL, without modifying repository preset archives.

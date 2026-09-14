@@ -9,6 +9,7 @@ from pathlib import PurePosixPath
 
 from .container_runtime import ContainerRuntime
 from .workflow_logs import LogArchive
+from .workflow_paths import output_directory
 from .workflow_artifacts import WorkflowArtifacts, artifact_key
 from .workflow_images import resolve_image, pull_pending
 from .domain import DomainError, SYSTEM, now, encode, decode
@@ -44,6 +45,9 @@ def render_steps(steps, env, context):
             return str(context[key])
         return re.sub(r'\$\{([A-Za-z_][A-Za-z0-9_.-]*)\}', replace, value)
     lines = ['set -euo pipefail']
+    if context.get('output_layout') == 'per-job' and context.get('task_id') and context.get('job_id'):
+        directory = output_directory(context['task_id'], context['job_id'])
+        lines.append(guard_path(directory) + 'mkdir -p -- ' + shlex.quote(directory))
     for step in steps:
         root = context['source_dir']
         if step.get('launch') or step.get('files'):
@@ -196,6 +200,8 @@ class WorkflowEngine:
                            for alias, binding in sorted(space['runtime'].get('bindings', {}).items(),
                                                         key=lambda item: int(item[0][4:]))]
         result['resource_mappings'] = state.get('resource_mappings', {})
+        if space['spec'].get('output_layout') == 'per-job':
+            result['output_layout'] = 'per-job'
         if space['spec'].get('runtime_variables') == 'minimal':
             result['runtime_variables'] = 'minimal'
             rows = self.db.all('SELECT alias,spec,runtime FROM workflow_environments WHERE space_id=%s',(space['id'],))
@@ -223,6 +229,8 @@ class WorkflowEngine:
             for key in ('task_id','job_id'):
                 if key in context:
                     values['HIVE_'+key.upper()] = str(context[key])
+            if context.get('output_layout') == 'per-job' and context.get('task_id') and context.get('job_id'):
+                values['HIVE_OUTPUT_DIR'] = output_directory(context['task_id'], context['job_id'])
             return values
         values = {**env['spec']['environment'], 'HIVE_SOURCE_DIR': context['source_dir'],
                   'HIVE_CONTEXT_JSON': encode(context), 'HIVE_PACKAGES_JSON': encode(env['spec']['packages']),

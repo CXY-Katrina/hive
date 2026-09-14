@@ -34,6 +34,9 @@ class PublishWorkflow(BaseModel):
 
 
 def register_preset_routes(app, services, current, respond):
+    from .preset_management_api import register_management_routes
+    register_management_routes(app, services, current, respond)
+
     @app.get('/api/presets')
     def presets(actor=Depends(current)):
         return respond(services.presets.list(actor))

@@ -141,14 +141,15 @@ class Artifact(Input):
 
     @model_validator(mode='after')
     def valid_path(self):
-        if '${' in re.sub(r'\$\{(?:task_id|job_id|HIVE_TASK_ID|HIVE_JOB_ID)\}', '', self.path):
-            raise ValueError('产物路径只支持 HIVE_TASK_ID 和 HIVE_JOB_ID（兼容旧 task_id / job_id）')
+        if '${' in re.sub(r'\$\{(?:task_id|job_id|HIVE_TASK_ID|HIVE_JOB_ID|HIVE_OUTPUT_DIR)\}', '', self.path):
+            raise ValueError('产物路径支持 HIVE_OUTPUT_DIR、HIVE_TASK_ID 和 HIVE_JOB_ID')
         if self.environment and self.targets:
             raise ValueError('产物请使用环境或精确节点目标中的一种')
         if len({(target.environment, target.node_alias) for target in self.targets}) != len(self.targets):
             raise ValueError('产物节点目标不能重复')
-        if not self.path.startswith('/') or '..' in PurePosixPath(self.path).parts or '\x00' in self.path:
-            raise ValueError('产物需要容器内绝对路径')
+        absolute = re.sub(r'^\$(?:\{HIVE_OUTPUT_DIR\}|HIVE_OUTPUT_DIR)(?=/|$)', '/output', self.path)
+        if not absolute.startswith('/') or '..' in PurePosixPath(absolute).parts or '\x00' in absolute:
+            raise ValueError('产物需要 HIVE_OUTPUT_DIR 下的路径或容器内绝对路径')
         if not self.label:
             self.label = PurePosixPath(self.path).name
         return self
@@ -181,6 +182,7 @@ class WorkflowCreate(Input):
     space_id: str | None = None
     retain_minutes: int = Field(default=0, ge=0, le=10080)
     runtime_variables: Literal['minimal'] = 'minimal'
+    output_layout: Literal['per-job'] = 'per-job'
     environments: list[Environment] = Field(default_factory=list, max_length=32)
     jobs: list[Job] = Field(min_length=1, max_length=64)
 

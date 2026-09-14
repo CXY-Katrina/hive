@@ -2887,3 +2887,14 @@ tbody tr:last-child td {
 .task-file-list .uploaded-file { width: 100%; min-width: 0; }
 .task-file-list .uploaded-file code { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .task-file-list .uploaded-file button { flex: 0 0 auto; white-space: nowrap; }
+
+.workflow-artifact-row { align-items: start; }
+.workflow-artifact-row > button { margin-top: 29px; margin-bottom: 0; }
+.workflow-artifact-row > .field > span { display: block; min-height: 23px; margin-bottom: 6px; }
+.workflow-artifact-row input, .workflow-artifact-row .artifact-target-picker > summary { min-height: 39px; }
+.workflow-artifact-row small { display: block; margin-top: 5px; }
+@media(max-width:800px) { .workflow-artifact-row > button { margin-top: 0; } }
+
+.workflow-allocation { margin: 18px 0; }
+.workflow-allocation th,.workflow-allocation td { padding: 8px; vertical-align: top; }
+.workflow-allocation td code { overflow-wrap: anywhere; }

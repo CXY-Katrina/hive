@@ -1,0 +1,35 @@
+.preset-catalog { min-width: 0; }
+.preset-catalog-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 18px 0; }
+.preset-catalog-toolbar > input { flex: 1 1 260px; min-width: 180px; }
+.preset-table-scroll { overflow: auto; max-width: 100%; border: 1px solid var(--border, #d9e4db); border-radius: 10px; }
+.preset-table { width: 100%; min-width: 1180px; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+.preset-table th, .preset-table td { padding: 16px 14px; vertical-align: top; text-align: left; border-bottom: 1px solid var(--border, #d9e4db); overflow-wrap: anywhere; }
+.preset-table th { background: #f0f5ed; font-size: 12px; font-weight: 600; color: #435f4b; }
+.preset-table th:first-child { width: 190px; }
+.preset-table th:nth-child(2), .preset-table th:nth-child(5) { width: 200px; }
+.preset-table th:nth-child(3), .preset-table th:nth-child(4) { width: 135px; }
+.preset-table th:nth-child(6) { width: 95px; }
+.preset-table th:nth-child(7) { width: 220px; }
+.preset-table th:last-child { width: 126px; }
+.preset-table th > span { display: block; margin-bottom: 10px; }
+.preset-table th select { width: 100%; min-width: 0; padding: 7px 8px; font-size: 12px; background: #fff; }
+.preset-table tbody tr:hover { background: #f8faf6; }
+.preset-table tbody tr:last-child td { border-bottom: 0; }
+.preset-table strong { color: #294735; line-height: 1.6; }
+.preset-source { margin-top: 10px; font-size: 12px; color: #6a7d70; }
+.preset-source summary { cursor: pointer; }
+.preset-source dl { margin: 10px 0 0; }
+.preset-source dt { margin-top: 8px; }
+.preset-source dd { margin: 3px 0 0; }
+.preset-remarks > span { display: block; white-space: pre-wrap; line-height: 1.7; }
+.preset-remarks > button { margin-top: 10px; }
+.preset-table-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.preset-table .preset-no-matches { padding: 28px 14px; text-align: center; color: #718275; }
+.preset-dialog-body { padding: 24px 28px; display: grid; gap: 20px; }
+.preset-form-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+.preset-form-grid .field { min-width: 0; }
+.preset-form-grid input, .preset-form-grid select { width: 100%; min-width: 0; }
+.preset-dialog-body textarea { width: 100%; resize: vertical; }
+.preset-json-editor { margin-top: 12px; font-family: Consolas, 'Microsoft YaHei', monospace; font-size: 12px; }
+.preset-dialog-actions { display: flex; justify-content: flex-end; gap: 12px; }
+@media (max-width: 640px) { .preset-form-grid { grid-template-columns: 1fr; } .preset-dialog-body { padding: 20px; } }

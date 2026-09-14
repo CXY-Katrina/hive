@@ -15,16 +15,14 @@ from pathlib import Path
 
 import yaml
 
-# Resolve the sibling by file path so uploads also support direct execution and
-# importlib loading without adding an upstream checkout to PYTHONPATH.
-_spec = importlib.util.spec_from_file_location(
-    "hive_qwen3_aisbench_config", Path(__file__).resolve().with_name("aisbench_config.py")
-)
-_config = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_config)
-render_dataset_config = _config.render_dataset_config
-render_request_config = _config.render_request_config
-verify_performance = _config.verify_performance
+def aisbench_helpers():
+    # Server preparation only reads YAML and never needs AISBench helpers.
+    spec = importlib.util.spec_from_file_location(
+        "hive_qwen3_aisbench_config", Path(__file__).resolve().with_name("aisbench_config.py")
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def select_case(path, case_name, benchmark):
@@ -57,6 +55,7 @@ def write_private(directory, name, content):
 
 
 def prepare(args, case, config):
+    helpers = aisbench_helpers()
     output = Path(args.output_dir).resolve()
     home = Path(args.benchmark_home).resolve()
     if output.is_relative_to(home):
@@ -73,7 +72,7 @@ def prepare(args, case, config):
         port=args.port,
         task_type=config["case_type"],
     )
-    model = render_request_config(model, options)
+    model = helpers.render_request_config(model, options)
     dataset_path = args.dataset_path
     dataset_digest = None
     if Path(dataset_path).is_file():
@@ -89,7 +88,7 @@ def prepare(args, case, config):
         dataset_path = str(directory)
     if config["dataset_conf"].startswith("textvqa"):
         dataset_path = str(Path(dataset_path) / "textvqa_val.jsonl")
-    dataset = render_dataset_config(dataset, dataset_path)
+    dataset = helpers.render_dataset_config(dataset, dataset_path)
     tree = ast.parse(dataset)
     names = [
         target.id
@@ -197,7 +196,7 @@ def verify(args, config):
     }
     result.update(provenance(args, config))
     try:
-        verify_performance(
+        aisbench_helpers().verify_performance(
             data,
             config.get("baseline", 1),
             config.get("threshold", 0.97),

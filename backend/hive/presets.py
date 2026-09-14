@@ -45,6 +45,8 @@ class Presets:
         self.sample_item_id = sample_item_id or None
         from .preset_archive import PresetArchive
         self.archive = PresetArchive(archive_root) if archive_root is not None else None
+        from .preset_management import PresetManagement
+        self.management = PresetManagement(self)
 
     def _decode(self, row):
         row = dict(row)
@@ -126,7 +128,8 @@ class Presets:
         if actor:
             rows.extend(self._variant(row) for row in self.db.all(
                 'SELECT * FROM workflow_preset_variants WHERE owner_user_id=%s OR %s ORDER BY created_at,id', (actor.id, actor.admin)))
-        return rows
+        rows.extend(self.management.list())
+        return self.management.decorate(rows)
 
     def _variant(self, row):
         value = dict(row)
@@ -205,6 +208,12 @@ class Presets:
         return [row for row in self.list() if row['id'] in ids]
 
     def get(self, preset_id, require_enabled=False, actor=None):
+        return self.management.decorate([self._get(preset_id,require_enabled,actor)])[0]
+
+    def _get(self, preset_id, require_enabled=False, actor=None):
+        public = self.management.get(preset_id)
+        if public:
+            return public
         archived = self.archive.get(preset_id) if self.archive else None
         if archived:
             return archived

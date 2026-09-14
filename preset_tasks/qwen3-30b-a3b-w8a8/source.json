@@ -9,9 +9,11 @@
   "aisbench_repository": "https://github.com/AISBench/benchmark",
   "aisbench_commit": "0da56eadb2ac85c31c2540f4f5b69af3ec5717a5",
   "helper_files": [
+    "bootstrap.sh",
+    "install-server.sh",
+    "install-client.sh",
     "task.sh",
     "nightly_cli.py",
-    "nightly_environment.py",
     "aisbench_config.py"
   ],
   "upload_prefix": "hive_presets/qwen3-30b-a3b-w8a8/",

@@ -5,12 +5,10 @@ set -euo pipefail
 TASK_PORT="${TASK_PORT:-18123}"
 TASK_SERVER_DEPS="${TASK_SERVER_DEPS:-/opt/hive-nightly-deps/server}"
 TASK_CLIENT_DEPS="${TASK_CLIENT_DEPS:-/opt/hive-nightly-deps/client}"
-TASK_BOOTSTRAP_SCRIPT="${TASK_BOOTSTRAP_SCRIPT:-/mnt/share/c00814587/start-docker-A3.sh}"
 TASK_BENCHMARK="${TASK_BENCHMARK:-perf}"
 : "${HIVE_SOURCE_DIR:?Current upstream checkout is required}"
 TASK_SCRIPTS_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 TASK_CASE_YAML="${TASK_CASE_YAML:-$HIVE_SOURCE_DIR/tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml}"
-TASK_OUTPUT_DIR="${TASK_OUTPUT_DIR:-/var/tmp/hive-nightly/${HIVE_TASK_ID:-}}"
 
 case_parameters() {
   local assignments
@@ -58,32 +56,18 @@ load_runtime() {
   fi
 }
 
-install_environment() {
-  local role="$1" deps="$TASK_SERVER_DEPS" source_sha vllm_sha wheelhouse
-  local extra=()
-  source_sha="$(git -C "$HIVE_SOURCE_DIR" rev-parse HEAD)"
-  vllm_sha="$(tr -d '[:space:]' < "$HIVE_SOURCE_DIR/.github/vllm-main-verified.commit")"
-  if test "$role" = client; then
-    deps="$TASK_CLIENT_DEPS"
-    wheelhouse="$(hive_resource package python-wheelhouse 2>/dev/null || true)"
-    if test -n "$wheelhouse"; then
-      test -d "$wheelhouse"
-      export PIP_FIND_LINKS="file://$wheelhouse" PIP_NO_INDEX=1
-    fi
-    extra=(--benchmark-source "$(hive_resource package aisbench-source)" --install-client-dependencies)
-  fi
-  python3 "$TASK_SCRIPTS_DIR/nightly_environment.py" \
-    --source-root "$HIVE_SOURCE_DIR" --source-commit "$source_sha" \
-    --role "$role" --vllm-sha "$vllm_sha" --dep-dir "$deps" --runtime-mode image-reuse "${extra[@]}"
+copy_environment_report() {
+  : "${HIVE_OUTPUT_DIR:?Platform job output directory is required}"
+  local deps="$TASK_SERVER_DEPS"
+  if test "$1" = client; then deps="$TASK_CLIENT_DEPS"; fi
+  mkdir -p "$HIVE_OUTPUT_DIR"
+  cp -- "$deps/environment-report.json" "$HIVE_OUTPUT_DIR/environment-report.json"
 }
 
+# Installation scripts source only the shared runtime functions above.
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return; fi
+
 case "${1:-}" in
-  bootstrap)
-    : "${2:?Pass the image field explicitly}" "${3:?Pass the current container name explicitly}"
-    exec bash "$TASK_BOOTSTRAP_SCRIPT" "$2" "$3"
-    ;;
-  install-server) install_environment server ;;
-  install-client) install_environment client ;;
   verify-env)
     case "${2:-}" in
       server) report="$TASK_SERVER_DEPS/environment-report.json" ;;
@@ -95,18 +79,19 @@ case "${1:-}" in
     ;;
   serve-prepare)
     load_runtime server
+    copy_environment_report server
     case_parameters
     python3 -c 'import socket,sys; s=socket.socket(); s.bind((sys.argv[1],int(sys.argv[2]))); s.close()' \
       "${HIVE_NODE0_IP:?}" "$TASK_PORT"
     python3 "$TASK_SCRIPTS_DIR/nightly_cli.py" server-command \
       --config "$TASK_CASE_YAML" --case "$TASK_CASE" --benchmark "$TASK_BENCHMARK" \
       --model-path "$(hive_resource model "$TASK_MODEL_NAME")" --host "$HIVE_NODE0_IP" --port "$TASK_PORT" \
-      --output-dir "${TASK_OUTPUT_DIR:?}/serve"
+      --output-dir "$HIVE_OUTPUT_DIR"
     ;;
   serve)
     load_runtime server
     # Consume generated argv as data; all executable glue is visible here.
-    exec python3 - "$TASK_OUTPUT_DIR/serve/server.json" <<'PY'
+    exec python3 - "$HIVE_OUTPUT_DIR/server.json" <<'PY'
 import json, os, sys
 with open(sys.argv[1]) as source:
     command = json.load(source)
@@ -123,17 +108,18 @@ PY
     ;;
   bench-prepare)
     load_runtime client
+    copy_environment_report client
     case_parameters
     python3 "$TASK_SCRIPTS_DIR/nightly_cli.py" prepare \
       --config "$TASK_CASE_YAML" --case "$TASK_CASE" --benchmark "$TASK_BENCHMARK" \
       --benchmark-home "$TASK_CLIENT_DEPS/benchmark" \
       --model-path "$(hive_resource model "$TASK_MODEL_NAME")" --dataset-path "$(hive_resource dataset "$TASK_DATASET_NAME")" \
-      --host "${HIVE_NODE0_IP:?}" --port "$TASK_PORT" --output-dir "$TASK_OUTPUT_DIR/client"
+      --host "${HIVE_NODE0_IP:?}" --port "$TASK_PORT" --output-dir "$HIVE_OUTPUT_DIR"
     ;;
   bench)
     load_runtime client
     # The official CLI runs in the foreground; pipefail preserves its exit code.
-    python3 - "$TASK_OUTPUT_DIR/client/manifest.json" <<'PY' 2>&1 | tee "$TASK_OUTPUT_DIR/client/aisbench.log"
+    python3 - "$HIVE_OUTPUT_DIR/manifest.json" <<'PY' 2>&1 | tee "$HIVE_OUTPUT_DIR/aisbench.log"
 import json, sys
 with open(sys.argv[1]) as source:
     argv = json.load(source)["argv"]
@@ -146,22 +132,24 @@ PY
     ;;
   verify-prepare)
     load_runtime client
+    copy_environment_report client
     case_parameters
     python3 "$TASK_SCRIPTS_DIR/nightly_cli.py" locate-results \
       --config "$TASK_CASE_YAML" --case "$TASK_CASE" --benchmark "$TASK_BENCHMARK" \
-      --manifest "$TASK_OUTPUT_DIR/client/manifest.json" --log "$TASK_OUTPUT_DIR/client/aisbench.log" \
-      --output-dir "$TASK_OUTPUT_DIR/verification"
+      --manifest "$(dirname -- "$HIVE_OUTPUT_DIR")/job1/manifest.json" --log "$(dirname -- "$HIVE_OUTPUT_DIR")/job1/aisbench.log" \
+      --output-dir "$HIVE_OUTPUT_DIR"
     ;;
   verify)
     load_runtime client
+    copy_environment_report client
     case_parameters
     exec python3 "$TASK_SCRIPTS_DIR/nightly_cli.py" verify \
       --config "$TASK_CASE_YAML" --case "$TASK_CASE" --benchmark "$TASK_BENCHMARK" \
-      --result-json "$TASK_OUTPUT_DIR/verification/result.json" --result-csv "$TASK_OUTPUT_DIR/verification/result.csv" \
-      --output-file "$TASK_OUTPUT_DIR/verification/verification.json"
+      --result-json "$HIVE_OUTPUT_DIR/result.json" --result-csv "$HIVE_OUTPUT_DIR/result.csv" \
+      --output-file "$HIVE_OUTPUT_DIR/verification.json"
     ;;
   *)
-    echo "Usage: task.sh bootstrap IMAGE CONTAINER | install-server | install-client | verify-env server|client | serve-prepare | serve | ready | bench-prepare | bench | verify-prepare | verify" >&2
+    echo "Usage: task.sh verify-env server|client | serve-prepare | serve | ready | bench-prepare | bench | verify-prepare | verify" >&2
     exit 2
     ;;
 esac

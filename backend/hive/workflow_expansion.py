@@ -3,6 +3,7 @@ import copy
 import hashlib
 import re
 from .domain import DomainError
+from .workflow_paths import output_directory
 
 
 def environment_nodes(env):
@@ -97,7 +98,7 @@ def bind_artifact_paths(jobs, task_id):
         seen = set()
         for artifact in job['artifacts']:
             path = artifact['path'].replace('${task_id}', task_id).replace('${job_id}', job['id'])
-            for name, value in (('HIVE_TASK_ID',task_id),('HIVE_JOB_ID',job['id'])):
+            for name, value in (('HIVE_TASK_ID',task_id),('HIVE_JOB_ID',job['id']),('HIVE_OUTPUT_DIR',output_directory(task_id,job['id']))):
                 path = re.sub(r'\$(?:\{' + name + r'\}|' + name + r'(?![A-Za-z0-9_]))',
                               lambda match: value,path)
             key = (artifact.get('environment') or job['environment'], path)

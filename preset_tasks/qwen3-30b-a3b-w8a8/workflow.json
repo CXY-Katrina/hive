@@ -47,10 +47,10 @@
         "uploaded_content": null,
         "runner": null,
         "external": false,
-        "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/task.sh\" bootstrap \"${image}\" \"${container_name}\"",
+        "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/bootstrap.sh\" \"${image}\" \"${container_name}\"",
         "files": [
           {
-            "name": "hive_presets/qwen3-30b-a3b-w8a8/task.sh"
+            "name": "hive_presets/qwen3-30b-a3b-w8a8/bootstrap.sh"
           }
         ]
       },
@@ -63,13 +63,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/task.sh\" install-server",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/install-server.sh\"",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/task.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/install-server.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/nightly_environment.py"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/task.sh"
             }
           ]
         }
@@ -120,10 +120,10 @@
         "uploaded_content": null,
         "runner": null,
         "external": false,
-        "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/task.sh\" bootstrap \"${image}\" \"${container_name}\"",
+        "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/bootstrap.sh\" \"${image}\" \"${container_name}\"",
         "files": [
           {
-            "name": "hive_presets/qwen3-30b-a3b-w8a8/task.sh"
+            "name": "hive_presets/qwen3-30b-a3b-w8a8/bootstrap.sh"
           }
         ]
       },
@@ -136,13 +136,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/task.sh\" install-client",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/install-client.sh\"",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/task.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/install-client.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/nightly_environment.py"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/task.sh"
             }
           ]
         }
@@ -168,8 +168,8 @@
   ],
   "jobs": [
     {
-      "id": "job1",
-      "name": "job1",
+      "id": "job0",
+      "name": "job0",
       "environment": "server_env",
       "node_aliases": [
         "node0"
@@ -196,9 +196,6 @@
             },
             {
               "name": "hive_presets/qwen3-30b-a3b-w8a8/nightly_cli.py"
-            },
-            {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/aisbench_config.py"
             },
             {
               "name": "tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml"
@@ -252,7 +249,7 @@
               "node_alias": "node0"
             }
           ],
-          "path": "/var/tmp/hive-nightly/${HIVE_TASK_ID}/serve/server.json",
+          "path": "${HIVE_OUTPUT_DIR}/server.json",
           "label": "服务配置与来源",
           "kind": "file"
         },
@@ -264,15 +261,15 @@
               "node_alias": "node0"
             }
           ],
-          "path": "/opt/hive-nightly-deps/server/environment-report.json",
+          "path": "${HIVE_OUTPUT_DIR}/environment-report.json",
           "label": "服务端实际环境",
           "kind": "file"
         }
       ]
     },
     {
-      "id": "job2",
-      "name": "job2",
+      "id": "job1",
+      "name": "job1",
       "environment": "client_env",
       "node_aliases": [
         "node0"
@@ -282,7 +279,7 @@
       "ports": [],
       "depends_on": [
         {
-          "job_id": "job1",
+          "job_id": "job0",
           "condition": "ready"
         }
       ],
@@ -342,7 +339,7 @@
               "node_alias": "node0"
             }
           ],
-          "path": "/var/tmp/hive-nightly/${HIVE_TASK_ID}/client/benchmark.py",
+          "path": "${HIVE_OUTPUT_DIR}/benchmark.py",
           "label": "AISBench 配置",
           "kind": "file"
         },
@@ -354,7 +351,7 @@
               "node_alias": "node0"
             }
           ],
-          "path": "/var/tmp/hive-nightly/${HIVE_TASK_ID}/client/manifest.json",
+          "path": "${HIVE_OUTPUT_DIR}/manifest.json",
           "label": "测试输入与参数来源",
           "kind": "file"
         },
@@ -366,7 +363,7 @@
               "node_alias": "node0"
             }
           ],
-          "path": "/opt/hive-nightly-deps/client/environment-report.json",
+          "path": "${HIVE_OUTPUT_DIR}/environment-report.json",
           "label": "客户端实际环境",
           "kind": "file"
         },
@@ -378,15 +375,15 @@
               "node_alias": "node0"
             }
           ],
-          "path": "/var/tmp/hive-nightly/${HIVE_TASK_ID}/client/results",
+          "path": "${HIVE_OUTPUT_DIR}/results",
           "label": "AISBench outputs（完整结果目录）",
           "kind": "auto"
         }
       ]
     },
     {
-      "id": "job3",
-      "name": "job3",
+      "id": "job2",
+      "name": "job2",
       "environment": "client_env",
       "node_aliases": [
         "node0"
@@ -396,7 +393,7 @@
       "ports": [],
       "depends_on": [
         {
-          "job_id": "job2",
+          "job_id": "job1",
           "condition": "succeeded"
         }
       ],
@@ -416,9 +413,6 @@
             },
             {
               "name": "hive_presets/qwen3-30b-a3b-w8a8/nightly_cli.py"
-            },
-            {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/aisbench_config.py"
             },
             {
               "name": "tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml"
@@ -465,7 +459,7 @@
               "node_alias": "node0"
             }
           ],
-          "path": "/var/tmp/hive-nightly/${HIVE_TASK_ID}/verification/result.json",
+          "path": "${HIVE_OUTPUT_DIR}/result.json",
           "label": "AISBench 原生结果 JSON",
           "kind": "file"
         },
@@ -477,7 +471,7 @@
               "node_alias": "node0"
             }
           ],
-          "path": "/var/tmp/hive-nightly/${HIVE_TASK_ID}/verification/result.csv",
+          "path": "${HIVE_OUTPUT_DIR}/result.csv",
           "label": "AISBench 原生结果 CSV",
           "kind": "file"
         },
@@ -489,7 +483,7 @@
               "node_alias": "node0"
             }
           ],
-          "path": "/var/tmp/hive-nightly/${HIVE_TASK_ID}/verification/result-location.json",
+          "path": "${HIVE_OUTPUT_DIR}/result-location.json",
           "label": "结果文件来源与摘要",
           "kind": "file"
         },
@@ -501,8 +495,20 @@
               "node_alias": "node0"
             }
           ],
-          "path": "/var/tmp/hive-nightly/${HIVE_TASK_ID}/verification/verification.json",
+          "path": "${HIVE_OUTPUT_DIR}/verification.json",
           "label": "原 nightly 阈值判定",
+          "kind": "file"
+        },
+        {
+          "environment": "",
+          "targets": [
+            {
+              "environment": "client_env",
+              "node_alias": "node0"
+            }
+          ],
+          "path": "${HIVE_OUTPUT_DIR}/environment-report.json",
+          "label": "当前客户端环境",
           "kind": "file"
         }
       ]

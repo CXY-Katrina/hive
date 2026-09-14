@@ -1,6 +1,6 @@
 # 工作流脚本变量
 
-新任务仅提供下列五类 Hive 环境变量。Shell 直接读取 `$变量名`，Python 使用 `os.environ["变量名"]`。节点和容器的数字编号从 0 开始。
+新任务提供下列六类 Hive 环境变量。Shell 直接读取 `$变量名`，Python 使用 `os.environ["变量名"]`。节点、容器和 job 的数字编号从 0 开始。
 
 | 变量 | 含义 |
 |---|---|
@@ -9,6 +9,7 @@
 | `HIVE_CONTAINER0_NAME`、`HIVE_CONTAINER1_NAME`、… | 本次任务环境中的实际容器名；按环境列表顺序、每个环境内节点编号升序排列，整个任务保持相同映射 |
 | `HIVE_TASK_ID` | 任务 ID |
 | `HIVE_JOB_ID` | 当前作业执行实例 ID；多节点实例各自不同 |
+| `HIVE_OUTPUT_DIR` | 当前作业产物根目录，固定为 `/var/tmp/hive/outputs/<任务ID>/<作业实例ID>`，执行前自动创建 |
 
 页面显示每个环境、节点和容器变量的对应关系，不需要猜测哪个编号对应哪个容器。例如，环境 env1、env2 都部署到 node0，则它们分别对应 `HIVE_CONTAINER0_NAME`、`HIVE_CONTAINER1_NAME`；若 env1 同时部署到 node0、node1，env2 只在 node0，则依次对应 container0、container1、container2。
 
@@ -19,7 +20,7 @@
 echo "节点地址：$HIVE_NODE0_IP"
 echo "容器名称：$HIVE_CONTAINER0_NAME"
 python3 "$HIVE_SOURCE_DIR/client.py" --url "http://$HIVE_NODE0_IP:$APP_PORT"
-mkdir -p "/var/tmp/results/$HIVE_TASK_ID/$HIVE_JOB_ID"
+mkdir -p "$HIVE_OUTPUT_DIR/results"
 ```
 
 ```python
@@ -37,7 +38,11 @@ dataset_path=$(hive_resource dataset 组织/数据集名)
 python3 "$HIVE_SOURCE_DIR/test.py" --model "$model_path" --dataset "$dataset_path"
 ```
 
-产物路径可使用 `${HIVE_TASK_ID}`、`${HIVE_JOB_ID}` 或对应裸变量写法，平台在提交时固定实际值。容器释放后，已归档产物仍可下载。
+产物路径推荐使用 `$HIVE_OUTPUT_DIR/result.json`，支持花括号写法；也可使用 `${HIVE_TASK_ID}`、`${HIVE_JOB_ID}` 组成绝对路径。平台在提交时固定实际值。容器释放后，已归档产物仍可下载。输出目录按作业实例隔离，不自动跨容器共享；跨容器读取需要容器挂载相同宿主机路径或共享盘。
+
+分配前表格显示环境、节点和容器代称；分配后任务详情显示对应的实际 IP、容器名称和状态。尚未创建的容器明确显示等待信息。
+
+`HIVE_OUTPUT_DIR` 是 Hive 定义的变量，借鉴 Slurm 输出文件名以作业 ID 区分的方式，并非 Slurm 的标准变量。新提交包含 `output_layout: "per-job"`；历史任务保持旧输出路径。安装和创建容器阶段不提供作业产物目录。
 
 兼容说明：新提交标记 `runtime_variables: "minimal"`；已提交的历史任务保持原变量合同，防止升级打断原脚本。旧 `${source_dir}` 等模板仍接受，但新预置使用上述变量；旧草稿需要重新载入新版预置或主动调整脚本，平台不会静默覆盖用户修改。`ASCEND_RT_VISIBLE_DEVICES` 仍用于 NPU 分配，它属于 Ascend 设备配置，并非额外的 Hive 脚本变量。
 

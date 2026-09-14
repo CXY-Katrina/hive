@@ -94,7 +94,7 @@ export function WorkflowGraph({ jobs, onChange, readOnly = false, onSelect, sele
       </svg>
       {jobs.map((job,index) => { const position = diagram.positions.get(job.id)!; return <article className={`workflow-graph-node ${source === job.id ? 'connecting' : ''} ${selectedJobId === job.id ? 'selected' : ''}`} data-job-id={job.id} key={job.id} style={{ left: position.x, top: position.y, width: CARD_WIDTH, height: CARD_HEIGHT }}>
         <button type="button" className="job-graph-select" disabled={!onSelect} aria-label={`选择作业 ${job.id}`} onClick={() => onSelect?.(job.id)}>
-          <div className="job-graph-node-heading"><span className="job-graph-kind">{job.kind === 'service' ? '◈' : '▧'}</span><div><strong title={job.name || job.id}>{`job${index + 1}`}</strong><span className="job-graph-job-id">{job.id}</span></div><span className="job-graph-kind-label">{job.kind === 'service' ? '服务' : '批处理'}</span></div>
+          <div className="job-graph-node-heading"><span className="job-graph-kind">{job.kind === 'service' ? '◈' : '▧'}</span><div><strong title={job.name || job.id}>{`job${index}`}</strong><span className="job-graph-job-id">{job.id}</span></div><span className="job-graph-kind-label">{job.kind === 'service' ? '服务' : '批处理'}</span></div>
           <div className="job-graph-binding"><span title={job.environment}>{job.environment || '待绑定环境'}</span><span>{job.npu_count} NPU</span></div>
           <div className="job-graph-phases"><Stage title="执行前检查" number="01" steps={job.pre} /><Stage title="主执行" number="02" steps={job.steps} /><Stage title="执行后检查" number="03" steps={job.post} extra={job.post_policy === 'always' ? '始终' : '成功后'} /></div>
         </button>
