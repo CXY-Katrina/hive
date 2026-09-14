@@ -1,78 +1,39 @@
-# Qwen3-30B-A3B-W8A8 预置任务
+# Qwen3-30B-A3B-W8A8 nightly 预置
 
-环境准备直接展示三个可编辑 Shell 文件，不再调用复杂安装封装：
+此目录归档一个 nightly 用例，来源 SHA、YAML 路径、AISBench SHA 和预置人员见 `source.json`。载入默认使用 main，提交时固定执行源码版本。服务器运行所选镜像已有 vLLM / Ascend 二进制，不自动把请求源码覆盖安装到镜像；实际环境版本记录在 environment-report.json。
 
-- `bootstrap.sh`：将所选镜像和当前实例容器名传给节点已有的 `start-docker-A3.sh`。
-- `install-server.sh`：复用镜像的 vLLM / Ascend / Torch / CANN，检查导入和 vLLM CLI，记录实际版本和源码请求。没有源码编译或运行时重装。
-- `install-client.sh`：读取节点 AISBench 源码映射，私有 clone 固定提交，创建 venv，直接运行可见的 pip 安装命令。
+## 环境准备与用例分离
 
-`nightly_environment.py` 仅作为历史兼容文件保留，新预置不引用它。
-`task.sh` 提供必要公共环境加载以及业务执行 action，安装脚本只 source 其中的公共函数。
-每个步骤仅列出自己实际使用的附件，不把所有文件汇总到每个 job。
+- `bootstrap.sh`：完整、可编辑的 Docker 创建命令。Hive 先准备并固定镜像 ID，脚本检查镜像后直接 docker run，不调用服务器上的个人脚本。采用 host 网络、host IPC；按存在路径透传 Ascend 设备与只读驱动，挂载 `/mnt` 以保留资源映射路径。CANN、Python 和 vLLM 使用镜像内版本。
+- `install-server.sh install` / `verify`：复用服务器镜像软件，检查导入和 vLLM CLI，记录实际模块版本。安装与校验均不读取 nightly YAML 或上游 `.github` 文件。
+- `install-client.sh install` / `verify`：从 `aisbench-source` 包映射创建独立固定 SHA 的 AISBench checkout 和 venv，可使用 `python-wheelhouse`；约束已有大包版本，检查 CLI 并记录实际依赖。脚本不读取任何模型或用例配置。
+- `image-runtime.sh`：两种环境共用的运行时加载函数，过滤请求 checkout 的 PYTHONPATH，加载镜像内厂商 CANN / ATB 环境。服务端要求 CANN；客户端不以缺少 CANN 脚本为错误。
 
-## Job 与文件
+安装与校验步骤各自展示本环境脚本及公共运行时附件，可直接编辑。默认环境目录分别是 `/opt/hive-env/server` 和 `/opt/hive-env/client`，可通过对应脚本中的普通 TASK_SERVER_DEPS / TASK_CLIENT_DEPS 修改。
 
-| Job | 作用 | 主要附件 |
-|---|---|---|
-| job0 | 服务准备、原生 vLLM serve、就绪检查 | task.sh、nightly_cli.py、原 YAML |
-| job1 | 准备配置、原生 AISBench 压测 | task.sh、nightly_cli.py、aisbench_config.py、原 YAML |
-| job2 | 定位 job1 结果、校验阈值 | task.sh、nightly_cli.py、aisbench_config.py、原 YAML |
+Bootstrap 是当前整机 A3 用例的设备配置，部分卡预置应在可见脚本中收窄 devices 列表；它不会接管或删除同名容器。映射路径不在 `/mnt` 时，需在 bootstrap 挂载其目录。宿主仅需 Docker、Ascend 驱动/设备及资源文件；无额外宿主用户脚本依赖。
 
-job1 等待 job0 ready，job2 等待 job1 succeeded。服务端准备只解析 YAML，不加载 AISBench helper。
-`nightly_cli.py` 只有在生成 AISBench 配置或验证性能时才导入 `aisbench_config.py`。
+## 每个作业的脚本
 
-## 来源与可编辑参数
+| 作业 | 环境 | 执行内容 | 业务附件 |
+| --- | --- | --- | --- |
+| job0 | server_env | 生成服务参数、原生 vLLM serve、HTTP 就绪检查 | server-job.sh、case-common.sh、nightly_cli.py、YAML |
+| job1 | client_env | 生成 AISBench 配置、调用官方 AISBench CLI | client-job.sh、case-common.sh、nightly_cli.py、aisbench_config.py、YAML |
+| job2 | client_env | 定位 job1 输出，校验原 nightly 阈值 | client-job.sh、case-common.sh、nightly_cli.py、aisbench_config.py、YAML |
 
-公共预置载入时解析上游 vllm-project/vllm-ascend 的 main 为固定提交，并取该提交的原文件：
+每个步骤还附带其直接调用的环境脚本和 image-runtime.sh；只在需要解析配置的步骤展示 Python / YAML。server 环境和 job0 不依赖 AISBench 文件。`case-common.sh` 仅共享用例路径、端口、参数读取和环境报告复制，环境安装不会调用它。
 
-`tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml`
+服务端和客户端可位于同一台机器不同容器，容器通过所申请节点 IP 通信。此预置为原单节点用例，服务地址取 `$HIVE_NODE0_IP`；修改成分布式用例需同步调整启动命令和原 YAML。
 
-任务始终读取本次 HIVE_SOURCE_DIR 中该原路径，可由附件编辑覆盖。取得 main 文件失败时不静默回退，个人副本保留用户修改。
-[source.json](source.json) 与 [case.yaml](case.yaml) 保存历史提交 d4d2957e5208c2f464d4625c05920bd29ea233cb 的原始证据。
-服务端安装报告从当前 checkout 和 .github/vllm-main-verified.commit 读取请求版本，明确标记实际运行时来自镜像。
+## 参数与输出
 
-| YAML 字段 | 作用 |
-|---|---|
-| test_cases[].name | case 名称，唯一 case 自动选择 |
-| test_cases[].model | model 映射名称、服务模型名称 |
-| benchmarks.perf.dataset_path | dataset 映射名称 |
-| test_cases[].server_cmd / envs | vLLM 参数 / 环境变量 |
-| benchmarks.perf.batch_size / num_prompts | 并发 / 请求数 |
-| benchmarks.perf.max_out_len / request_rate | 最大输出长度 / 请求速率 |
-| benchmarks.perf.baseline / threshold | 校验基线与阈值 |
+- 模型、量化、并行度、数据集、请求长度与阈值：编辑原 YAML。
+- 服务端口、用例选择：编辑 case-common.sh 的 TASK_PORT / TASK_CASE / TASK_BENCHMARK。
+- 服务启动设置：编辑 server-job.sh；压测与结果校验：编辑 client-job.sh。
+- 每个作业输出写入 `$HIVE_OUTPUT_DIR`，实际目录为 `/var/tmp/hive/outputs/<任务ID>/<作业实例ID>`。
+- job0 保存 server.json 与环境报告。job1 保存 manifest.json、AISBench 日志、完整 outputs 目录和环境报告。job2 保存结果 JSON/CSV、来源记录和判定报告。
+- job2 在同一 client_env 中读取相邻 job1 输出；将作业改为多节点展开时，应同时调整这一显式输入路径。
 
-修改 TP 时同步调整 job0 的 npu_count。同名附件内容必须一致；多个 case 时设置 TASK_CASE，TASK_BENCHMARK 默认为 perf。
-`nightly_cli.py parameters --config ...` 是纯参数读取入口，支持 --format shell 输出安全引用的 TASK_ 赋值。
+平台只负责容器、调度、命令和归档。`nightly_cli.py` 与 `aisbench_config.py` 是 Hive 预置适配代码；执行用例来自原 YAML，AISBench 使用官方 CLI。历史 task.sh / nightly_environment.py 不在新预置附件清单中，不再参与新任务。
 
-## 平台输入与输出目录
-
-平台变量为 HIVE_SOURCE_DIR、HIVE_NODE{n}_IP、HIVE_CONTAINER{n}_NAME、HIVE_TASK_ID、HIVE_JOB_ID 和 HIVE_OUTPUT_DIR。
-资源路径通过平台保留的 hive_resource 函数查询。服务地址由 HIVE_NODE0_IP 和脚本中的 TASK_PORT（默认 18123）组成；修改端口时同步 job0 的 ports。
-bootstrap 的两个位置参数来自镜像和当前容器字段（内部模板 ${image} / ${container_name}），不猜测容器编号。
-
-所有 job 产物都在平台提供的 HIVE_OUTPUT_DIR：
-
-`/var/tmp/hive/outputs/<task-id>/<job-instance-id>`
-
-预置为单节点，实例 id 就是 job0 / job1 / job2。job0 保存 server.json，job1 保存 benchmark.py、manifest.json、aisbench.log 和完整 results 目录，job2 保存定位记录、原始 JSON/CSV 和验证报告。
-job2 从 `$(dirname "$HIVE_OUTPUT_DIR")/job1` 读取本次压测数据；各 job 先将所属容器的环境报告复制到自身 HIVE_OUTPUT_DIR/environment-report.json，再归档。
-产物配置统一使用 `${HIVE_OUTPUT_DIR}/文件名`，完整 AISBench outputs 对应 `${HIVE_OUTPUT_DIR}/results` 并由平台自动打包。
-默认 retain_minutes 为 0，任务结束后由平台正常关闭容器和释放资源。
-
-其他预置设置为普通 TASK_ 变量：TASK_SERVER_DEPS / TASK_CLIENT_DEPS 默认 /opt/hive-nightly-deps/server / client；TASK_CASE_YAML 可指定原 YAML；TASK_CANN_ENV 可指定厂商环境入口；TASK_BOOTSTRAP_SCRIPT 默认 /mnt/share/c00814587/start-docker-A3.sh。
-AISBench 提交在 install-client.sh 中显式列出，也可编辑 TASK_AISBENCH_SHA。
-
-## 安装依赖与执行方式
-
-服务端需要镜像已有 Python 3.11+、PyYAML、vLLM、vLLM Ascend、Torch/NPU、CANN/ATB。安装脚本检查这些组件而不推测新版本。
-客户端从 aisbench-source 包映射私有 clone 固定 AISBench 0da56eadb2ac85c31c2540f4f5b69af3ec5717a5，不修改共享目录；使用 venv --system-site-packages 复用大包，并将镜像已有 Torch/NPU/NumPy 等版本写入 pip constraints。
-实际依赖命令直接可见：安装固定 checkout 的 [api]、PyYAML、OpenCV 4.11.0.86 和 Pillow 11.2.1。后两项是该已接入镜像与固定 AISBench 的已知客户端兼容组合，只覆盖私有 venv，不修改原镜像。
-有 python-wheelhouse 包映射时启用本地 wheel / PIP_NO_INDEX，否则沿用现有 pip 源。环境准备还需要 Bash、Git、venv、pip；任务使用 curl、tee。
-
-pip check 输出保存在环境报告中，只作为诊断信息，不宣称完整依赖一致，也不再进行复杂的逐条冲突审计。
-唯一外部任务基础设施入口是节点已有的 start-docker-A3.sh；CANN / ATB 环境脚本属于厂商依赖。
-
-所有实际业务命令都在可见附件中。task.sh 从非请求源码目录恢复运行环境，保留镜像合法路径并过滤请求 checkout，不 source 生成的 activate.sh。
-服务将生成的 argv 交给原生 vllm serve；客户端调用官方 ais_bench.benchmark.cli.main，前台 pipefail + tee 保留失败退出码。
-生成的 server.sh / benchmark.sh / verify.sh 只用于命令说明，不被预置执行；没有 pytest / AisbenchRunner 包装。
-配置和校验逻辑保留原 YAML 参数、完整官方 AISBench 配置以及原阈值算法，代码许可见 [LICENSE](LICENSE)。
+本次仅编辑前端与脚本，未运行测试、安装或 NPU 任务；不能据此声称自包含 Docker 配置已完成实机验证。

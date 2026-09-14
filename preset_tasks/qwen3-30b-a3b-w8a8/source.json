@@ -10,9 +10,12 @@
   "aisbench_commit": "0da56eadb2ac85c31c2540f4f5b69af3ec5717a5",
   "helper_files": [
     "bootstrap.sh",
+    "image-runtime.sh",
     "install-server.sh",
     "install-client.sh",
-    "task.sh",
+    "case-common.sh",
+    "server-job.sh",
+    "client-job.sh",
     "nightly_cli.py",
     "aisbench_config.py"
   ],

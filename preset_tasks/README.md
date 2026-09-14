@@ -6,7 +6,7 @@
 目录维护 source.json 来源证据、workflow.json 编排、可编辑执行脚本和原 YAML 快照。
 公共预置载入时读取当前上游 main 的 YAML；个人副本保留用户编辑。提交记录实际内容与哈希，不修改 vllm-ascend 上游代码。
 
-环境直接展示 bootstrap.sh、install-server.sh、install-client.sh。公共 task.sh 仅提供必要环境恢复和任务动作，Python 负责 YAML 配置与结果验证；新预置不调用历史 nightly_environment.py 安装封装。
+环境直接展示自包含 bootstrap.sh、各自的 install-server.sh / install-client.sh 和通用 image-runtime.sh。环境安装与校验不读取 nightly 配置；业务分别由 server-job.sh / client-job.sh 持有，case-common.sh 共享用例参数。Python 负责 YAML 配置与结果验证；新预置不调用历史 task.sh / nightly_environment.py，也不依赖宿主机个人启动脚本。
 各步骤通过 files 只声明自身需要的附件，服务端不附 AISBench 专用配置代码。helper_files 是归档可引用文件目录，不是每个 job 的全局附件清单。
 脚本上传在 hive_presets/<目录名>/，YAML 使用上游原路径；同一路径在同任务内必须保持相同内容。
 

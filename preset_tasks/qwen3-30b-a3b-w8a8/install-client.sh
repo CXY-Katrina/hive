@@ -1,7 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source "$(dirname -- "${BASH_SOURCE[0]}")/task.sh"
-load_runtime server
+TASK_CLIENT_DEPS="${TASK_CLIENT_DEPS:-/opt/hive-env/client}"
+source "$(dirname -- "${BASH_SOURCE[0]}")/image-runtime.sh"
+load_client_runtime() {
+  load_image_runtime client
+  test -x "$TASK_CLIENT_DEPS/venv/bin/python3"
+  export PATH="$TASK_CLIENT_DEPS/venv/bin:$PATH"
+  export PYTHONPATH="$TASK_CLIENT_DEPS/benchmark${PYTHONPATH:+:$PYTHONPATH}"
+}
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return; fi
+if test "${1:-install}" = verify; then
+  load_client_runtime
+  python3 -c 'from ais_bench.benchmark.cli.main import main; main()' --help >/dev/null
+  cat "$TASK_CLIENT_DEPS/environment-report.json"
+  exit
+fi
+test "${1:-install}" = install
+load_image_runtime client
 # The base image must already contain the NPU stack; do not resolve a replacement.
 python3 -c 'import torch, torch_npu, numpy'
 TASK_AISBENCH_SHA="${TASK_AISBENCH_SHA:-0da56eadb2ac85c31c2540f4f5b69af3ec5717a5}"
@@ -30,7 +45,7 @@ PY
 "$TASK_CLIENT_DEPS/venv/bin/python3" -m pip install --upgrade-strategy only-if-needed \
   -c "$TASK_CLIENT_DEPS/constraints.txt" -e "$TASK_CLIENT_DEPS/benchmark[api]" \
   PyYAML opencv-python-headless==4.11.0.86 Pillow==11.2.1
-load_runtime client
+load_client_runtime
 python3 -c 'from ais_bench.benchmark.cli.main import main; main()' --help > "$TASK_CLIENT_DEPS/cli-help.log"
 # Keep existing-image dependency diagnostics visible without claiming a clean solve.
 python3 -m pip check > "$TASK_CLIENT_DEPS/pip-check.log" 2>&1 || true

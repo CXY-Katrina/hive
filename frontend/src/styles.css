@@ -2868,9 +2868,11 @@ tbody tr:last-child td {
 
 .artifact-target-picker { position: relative; }
 .artifact-target-picker > summary { border: 1px solid var(--border); padding: 9px; cursor: pointer; border-radius: 6px; background: white; }
-.artifact-target-options { position: absolute; top: 100%; left: 0; z-index: 8; min-width: 100%; max-height: 240px; overflow: auto; background: white; border: 1px solid #c4d6c7; padding: 10px; box-shadow: 0 8px 20px #15392322; }
-.artifact-target-options label { display: flex; align-items: center; gap: 8px; padding: 7px; white-space: nowrap; }
-.artifact-target-options input[type=checkbox] { width: 16px; height: 16px; }
+.artifact-target-options { position: absolute; top: 100%; left: 0; z-index: 8; min-width: 100%; max-height: 200px; overflow: auto; background: white; border: 1px solid #c4d6c7; padding: 4px; box-shadow: 0 8px 20px #15392322; }
+.artifact-target-options label { display: flex; align-items: center; gap: 7px; padding: 5px 7px; margin: 0; min-height: 28px; line-height: 1.4; white-space: nowrap; cursor: pointer; }
+.artifact-target-options label:hover { background: #f0f6ef; }
+.artifact-target-options > .text-button { padding: 5px 7px; margin: 3px 0 0; font-size: 12px; }
+.workflow-artifact-row .artifact-target-options input[type=checkbox] { width: 14px; height: 14px; min-height: 14px; padding: 0; margin: 0; flex: 0 0 14px; }
 
 .workflow-image-picker { min-width: 0; }
 .workflow-image-picker details { margin-top: 8px; }
@@ -2891,7 +2893,7 @@ tbody tr:last-child td {
 .workflow-artifact-row { align-items: start; }
 .workflow-artifact-row > button { margin-top: 29px; margin-bottom: 0; }
 .workflow-artifact-row > .field > span { display: block; min-height: 23px; margin-bottom: 6px; }
-.workflow-artifact-row input, .workflow-artifact-row .artifact-target-picker > summary { min-height: 39px; }
+.workflow-artifact-row input:not([type=checkbox]), .workflow-artifact-row .artifact-target-picker > summary { min-height: 39px; }
 .workflow-artifact-row small { display: block; margin-top: 5px; }
 @media(max-width:800px) { .workflow-artifact-row > button { margin-top: 0; } }
 

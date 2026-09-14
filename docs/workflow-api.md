@@ -8,7 +8,7 @@ The browser uses the existing `/api` session and resource specifications. The AP
 
 `POST /workflows` accepts `{idempotency_key,name,source,preset_id?,resource?,space_id?,retain_minutes,environments,jobs}`. Exactly one of resource and space_id selects a new or reusable space. Source uses a resolved PR, commit or main branch. Resource is the existing ResourceSpec. Reuse sends environments=[]; the API loads the existing environment inputs instead of accepting display/status fields as a mutation.
 
-Environment: `{alias,role:'server'|'client',node_alias:'node0',image,shell,python,workdir,environment:{},packages:[{name,version,source}],bootstrap:Step,install:Step[],verify:Step[]}`. The authorized existing bootstrap is `{type:'shell',path:'/mnt/share/c00814587/start-docker-A3.sh',args:['${image}','${container_name}'],external:true}`. Other executable paths are relative to the frozen PR. Each environment has its own installation inputs. Workdir is absolute (default /home); aliases use lowercase [a-z][a-z0-9_]{0,31}. Service ports are 1024–65535.
+Environment: `{alias,role:'server'|'client',node_alias:'node0',image,shell,python,workdir,environment:{},packages:[{name,version,source}],bootstrap:Step,install:Step[],verify:Step[]}`. New presets use an attached self-contained bootstrap script with image/container arguments; they do not call scripts preinstalled on the host. Historical external bootstrap definitions remain accepted for compatibility. Other executable paths are relative to the frozen source. Each environment has its own installation inputs. Workdir is absolute (default /home); aliases use lowercase [a-z][a-z0-9_]{0,31}. Service ports are 1024–65535.
 
 Job: `{id,name,environment,kind:'batch'|'service',npu_count,ports:number[],depends_on:[{job_id,condition:'succeeded'|'ready'}],pre:Step[],steps:Step[],post:Step[],post_policy:'success'|'always',ready:Step[],timeout_seconds}`. Zero NPU is valid for request-only clients. Service readiness dependencies differ from successful completion dependencies.
 
@@ -82,7 +82,7 @@ New tasks always allocate environments and release them after all jobs and clean
 
 The six public variable groups are documented in [workflow variables](workflow-variables.md). Container numbering follows environment order and numeric node order, globally consistent across all jobs. No endpoint/host/port/image/source-SHA JSON variables are introduced for new tasks; business scripts own those settings.
 
-Task files are displayed under their owning steps and are editable, with same-name edits synchronized; there is no global file summary. The Qwen3 preset shares one task.sh across stages instead of many wrapper scripts. Old drafts without script attachments display an explicit reload notice; restoration recovers missing job environments but does not overwrite edited commands.
+Task files are displayed under their owning steps and are editable, with same-name edits synchronized; there is no global file summary. The Qwen3 preset separates environment runtime/install/verification from server and client job scripts. Each step includes its needed script dependencies. Old drafts without script attachments display an explicit reload notice; restoration recovers missing job environments but does not overwrite edited commands.
 
 `post` is labeled “执行后检查”: a script that runs after the main commands, with nonzero exit failing the job. It is not a manual approval gate. Service `ready` checks are separate and unblock downstream jobs only after service readiness succeeds.
 
