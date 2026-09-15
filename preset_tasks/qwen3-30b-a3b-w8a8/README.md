@@ -2,6 +2,8 @@
 
 一个目录对应一个 nightly YAML。来源 SHA、YAML 路径、AISBench SHA 和预置人员见 source.json；载入默认 main，提交时固定执行源码。
 
+公共脚本现统一在 `../common/`，下发路径为 `hive_presets/common/`；本目录只保留硬件相关 bootstrap、用例 YAML、工作流与来源元数据。所有脚本来源和参数见 [脚本清单](../SCRIPT_ORIGINS.md)。同目录旧脚本仅为历史兼容保留。
+
 ## 环境准备
 
 环境安装不读取模型或 nightly 参数，服务端和客户端分别准备。
@@ -24,7 +26,7 @@
 
 每个文件直接执行该阶段，不再通过长脚本的命令参数分发。服务准备读取 YAML 并生成原生 vLLM 命令；压测准备生成 AISBench 配置，压测调用官方 CLI。涉及 YAML 的阶段带 nightly_cli.py 与 YAML，仅 AISBench 配置生成和阈值判定需要 aisbench_config.py。服务启动仅附自身与 runtime.sh，就绪检查只有 ready.sh。
 
-nightly_cli.py 和 aisbench_config.py 是 Hive 预置适配代码。模型、并行度、数据集、请求长度与阈值编辑原 YAML；端口和用例选择在准备脚本中的 TASK_PORT / TASK_CASE / TASK_BENCHMARK 修改，就绪脚本端口需同步。
+nightly_cli.py 和 aisbench_config.py 是 Hive 预置适配代码。模型、并行度、数据集、请求长度与阈值编辑原 YAML；端口、IP、用例选择、依赖目录及产物/输入目录在每一步启动命令中显式传参，公共脚本不内置 Qwen 名称或 job1 路径。
 
 ## 产物归属
 

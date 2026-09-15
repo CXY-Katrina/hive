@@ -2904,3 +2904,10 @@ tbody tr:last-child td {
 .workflow-environment-row > .field > span, .workflow-environment-row .workflow-image-picker .field > span { min-height: 20px; line-height: 20px; }
 .workflow-environment-row input, .workflow-environment-row .choice-buttons button { min-height: 40px; box-sizing: border-box; }
 .workflow-environment > .workflow-bootstrap { margin-top: 12px; }
+
+.workflow-environment-phase { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
+.workflow-environment-phase > h4 { margin: 0 0 10px; }
+.workflow-variable-guide > summary { cursor: pointer; font-weight: 600; }
+.workflow-variable-guide .code-editor { min-height: 0; height: auto; padding: 12px 14px; margin: 10px 0; color: #d8e8cf; line-height: 1.6; }
+.workflow-artifact-inputs > .workflow-row-heading { margin-top: 20px; padding: 12px 14px; background: #edf4e9; border-left: 4px solid #286b50; border-radius: 4px; }
+.workflow-artifact-inputs > .workflow-row-heading h3 { font-size: 18px; font-weight: 700; margin: 0; color: #24483b; }

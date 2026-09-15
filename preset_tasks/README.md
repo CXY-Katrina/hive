@@ -15,3 +15,7 @@
 
 镜像和实际容器名显式传给附件 bootstrap.sh，不由角色推测名称。安装脚本可直接编辑；服务端源码和客户端 checkout / venv 均位于容器私有目录。job1 保留原始 outputs，job2 只读 job1 输入并在自己的目录生成校验报告，避免重复归档。
 新部署包含本目录，不迁移旧任务。预置可载入不代表性能已验证，资源提交仍遵守平台权限。
+
+## 公共脚本与来源
+
+可复用 Shell/Python 位于 `common/`，该目录不是一个预置任务。每个任务通过 `source.json` 的 `common_files` 列表声明所需脚本，步骤附件保留可编辑源码。来源与逐脚本参数见 [SCRIPT_ORIGINS.md](SCRIPT_ORIGINS.md)。

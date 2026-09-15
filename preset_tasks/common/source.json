@@ -1,0 +1,19 @@
+{
+  "upload_prefix": "hive_presets/common/",
+  "helper_files": [
+    "runtime.sh",
+    "install-server.sh",
+    "verify-server.sh",
+    "install-client.sh",
+    "verify-client.sh",
+    "serve-prepare.sh",
+    "serve.sh",
+    "ready.sh",
+    "bench-prepare.sh",
+    "bench.sh",
+    "verify-prepare.sh",
+    "verify.sh",
+    "nightly_cli.py",
+    "aisbench_config.py"
+  ]
+}

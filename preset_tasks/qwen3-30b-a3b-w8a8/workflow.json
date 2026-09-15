@@ -58,13 +58,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/install-server.sh\"",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/common/install-server.sh\" /opt/hive-env/server",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/install-server.sh"
+              "name": "hive_presets/common/install-server.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
+              "name": "hive_presets/common/runtime.sh"
             }
           ]
         }
@@ -78,13 +78,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/verify-server.sh\"",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/common/verify-server.sh\" /opt/hive-env/server",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/verify-server.sh"
+              "name": "hive_presets/common/verify-server.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
+              "name": "hive_presets/common/runtime.sh"
             }
           ]
         }
@@ -129,13 +129,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/install-client.sh\"",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/common/install-client.sh\" /opt/hive-env/client 0da56eadb2ac85c31c2540f4f5b69af3ec5717a5",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/install-client.sh"
+              "name": "hive_presets/common/install-client.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
+              "name": "hive_presets/common/runtime.sh"
             }
           ]
         }
@@ -149,13 +149,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/verify-client.sh\"",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/common/verify-client.sh\" /opt/hive-env/client",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/verify-client.sh"
+              "name": "hive_presets/common/verify-client.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
+              "name": "hive_presets/common/runtime.sh"
             }
           ]
         }
@@ -185,16 +185,16 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/serve-prepare.sh\"",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/common/serve-prepare.sh\" \"$HIVE_SOURCE_DIR/tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml\" \"Qwen3-30B-A3B-W8A8-TP1\" perf \"$HIVE_NODE0_IP\" 18123 /opt/hive-env/server \"$HIVE_OUTPUT_DIR\"",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/serve-prepare.sh"
+              "name": "hive_presets/common/serve-prepare.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
+              "name": "hive_presets/common/runtime.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/nightly_cli.py"
+              "name": "hive_presets/common/nightly_cli.py"
             },
             {
               "name": "tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml"
@@ -211,13 +211,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/serve.sh\"",
+          "launch": "VLLM_CI_RUNNER=linux-aarch64-nightly-a3-4 bash \"$HIVE_SOURCE_DIR/hive_presets/common/serve.sh\" \"$HIVE_OUTPUT_DIR/server.json\"",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/serve.sh"
+              "name": "hive_presets/common/serve.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
+              "name": "hive_presets/common/runtime.sh"
             }
           ]
         }
@@ -232,10 +232,10 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/ready.sh\"",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/common/ready.sh\" \"$HIVE_NODE0_IP\" 18123 /health 900",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/ready.sh"
+              "name": "hive_presets/common/ready.sh"
             }
           ]
         }
@@ -294,19 +294,19 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/bench-prepare.sh\"",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/common/bench-prepare.sh\" \"$HIVE_SOURCE_DIR/tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml\" \"Qwen3-30B-A3B-W8A8-TP1\" perf \"$HIVE_NODE0_IP\" 18123 /opt/hive-env/client \"$HIVE_OUTPUT_DIR\"",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/bench-prepare.sh"
+              "name": "hive_presets/common/bench-prepare.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
+              "name": "hive_presets/common/runtime.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/nightly_cli.py"
+              "name": "hive_presets/common/nightly_cli.py"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/aisbench_config.py"
+              "name": "hive_presets/common/aisbench_config.py"
             },
             {
               "name": "tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml"
@@ -323,13 +323,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/bench.sh\"",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/common/bench.sh\" /opt/hive-env/client \"$HIVE_OUTPUT_DIR/manifest.json\" \"$HIVE_OUTPUT_DIR/aisbench.log\"",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/bench.sh"
+              "name": "hive_presets/common/bench.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
+              "name": "hive_presets/common/runtime.sh"
             }
           ]
         }
@@ -414,16 +414,16 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/verify-prepare.sh\"",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/common/verify-prepare.sh\" \"$HIVE_SOURCE_DIR/tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml\" \"Qwen3-30B-A3B-W8A8-TP1\" perf /opt/hive-env/client \"$HIVE_OUTPUT_DIR\" \"$(dirname -- \"$HIVE_OUTPUT_DIR\")/job1/manifest.json\" \"$(dirname -- \"$HIVE_OUTPUT_DIR\")/job1/aisbench.log\"",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/verify-prepare.sh"
+              "name": "hive_presets/common/verify-prepare.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
+              "name": "hive_presets/common/runtime.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/nightly_cli.py"
+              "name": "hive_presets/common/nightly_cli.py"
             },
             {
               "name": "tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml"
@@ -440,19 +440,19 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/verify.sh\"",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/common/verify.sh\" \"$HIVE_SOURCE_DIR/tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml\" \"Qwen3-30B-A3B-W8A8-TP1\" perf /opt/hive-env/client \"$HIVE_OUTPUT_DIR\"",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/verify.sh"
+              "name": "hive_presets/common/verify.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
+              "name": "hive_presets/common/runtime.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/nightly_cli.py"
+              "name": "hive_presets/common/nightly_cli.py"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/aisbench_config.py"
+              "name": "hive_presets/common/aisbench_config.py"
             },
             {
               "name": "tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml"

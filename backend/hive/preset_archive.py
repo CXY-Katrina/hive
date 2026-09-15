@@ -68,6 +68,11 @@ class PresetArchive:
             # Freeze the maintained files through the same upload boundary as UI scripts.
             files = {PREFIX + directory.name + '/' + name: self.file(PREFIX + directory.name + '/' + name)['content']
                      for name in metadata['helper_files']}
+            for name in metadata.get('common_files', []):
+                if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_.-]+\.(?:sh|py|yaml|yml)', name):
+                    raise DomainError('公共预置脚本名称无效', 500)
+                common_path = PREFIX + 'common/' + name
+                files[common_path] = self.file(common_path)['content']
             for upstream_path, local_name in metadata.get('input_files', {}).items():
                 if not re.fullmatch(r'[A-Za-z0-9_.-]+\.(?:yaml|yml)', local_name) or (directory / local_name).is_symlink():
                     raise DomainError('预置 YAML 归档路径无效', 500)

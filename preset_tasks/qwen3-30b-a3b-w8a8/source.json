@@ -9,21 +9,7 @@
   "aisbench_repository": "https://github.com/AISBench/benchmark",
   "aisbench_commit": "0da56eadb2ac85c31c2540f4f5b69af3ec5717a5",
   "helper_files": [
-    "bootstrap.sh",
-    "runtime.sh",
-    "install-server.sh",
-    "verify-server.sh",
-    "install-client.sh",
-    "verify-client.sh",
-    "serve-prepare.sh",
-    "serve.sh",
-    "ready.sh",
-    "bench-prepare.sh",
-    "bench.sh",
-    "verify-prepare.sh",
-    "verify.sh",
-    "nightly_cli.py",
-    "aisbench_config.py"
+    "bootstrap.sh"
   ],
   "upload_prefix": "hive_presets/qwen3-30b-a3b-w8a8/",
   "id": "Qwen3-30B-A3B-W8A8",
@@ -46,5 +32,21 @@
   "input_files": {
     "tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml": "case.yaml"
   },
-  "default_ref": "main"
+  "default_ref": "main",
+  "common_files": [
+    "runtime.sh",
+    "install-server.sh",
+    "verify-server.sh",
+    "install-client.sh",
+    "verify-client.sh",
+    "serve-prepare.sh",
+    "serve.sh",
+    "ready.sh",
+    "bench-prepare.sh",
+    "bench.sh",
+    "verify-prepare.sh",
+    "verify.sh",
+    "nightly_cli.py",
+    "aisbench_config.py"
+  ]
 }

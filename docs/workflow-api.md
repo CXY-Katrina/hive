@@ -84,7 +84,7 @@ The six public variable groups are documented in [workflow variables](workflow-v
 
 Task files are displayed under their owning steps and are editable, with same-name edits synchronized; there is no global file summary. The Qwen3 preset separates environment runtime/install/verification from standalone prepare, execution, readiness and verification scripts. Each step includes its needed script dependencies. Old drafts without script attachments display an explicit reload notice; restoration recovers missing job environments but does not overwrite edited commands.
 
-`post` is labeled “执行后检查”: a script that runs after the main commands, with nonzero exit failing the job. It is not a manual approval gate. Service `ready` checks are separate and unblock downstream jobs only after service readiness succeeds.
+The composer exposes three phases: 前置校验 (`pre`), 执行 (`steps`), 后续检查 (`ready` for services, `post` for batches). Service checks run after startup and unblock downstream jobs on success; batch checks run after commands exit. Existing service `post` steps remain separately editable under the follow-up section for stop-time cleanup. The backend keeps these execution timings distinct.
 
 ## Per-job output directories and public preset management
 
@@ -95,3 +95,5 @@ New submissions default to `output_layout:"per-job"`. Job execution exports `HIV
 - Preset list/get responses include `remarks`; null uses tags outside the five primary table fields as default remarks.
 
 Apply schema migration 009 before starting the updated services. Public definitions and remark overlays are stored in MySQL, without modifying repository preset archives.
+
+Archive metadata may include `common_files` (basenames). Files are loaded from `hive_presets/common/` after validation against `preset_tasks/common/source.json` helper_files, and frozen through the same editable attachment boundary as case-owned files. The common directory has no workflow and is not a separate preset.
