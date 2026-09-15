@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
-: "${1:?image}" "${2:?container name}"
-image="$1"
-container="$2"
-# Hive resolves/pulls and pins this image ID before this creation step.
-# No host-side user script is required.
+image="${1:?image}"
+container="${2:?container name}"
+# Adapted from start-docker-A3.sh supplied by the user; no host script dependency.
+# Hive has already resolved/pulled this image. Docker rejects existing names.
 docker image inspect -- "$image" >/dev/null
-# Keep model/dataset/package mappings under /mnt available at the same paths.
-# Mount only host driver files; CANN/Python/vLLM come from the selected image.
-mounts=(--volume /mnt:/mnt)
-for path in /usr/local/Ascend/driver /usr/local/dcmi /usr/local/bin/npu-smi /etc/ascend_install.info /etc/hccn.conf; do
-  if test -e "$path"; then mounts+=(--volume "$path:$path:ro"); fi
-done
 devices=()
-for path in /dev/davinci[0-9]* /dev/davinci_manager /dev/devmm_svm /dev/hisi_hdc; do
+for path in /dev/davinci[0-9]* /dev/davinci_manager /dev/hisi_hdc /dev/devmm_svm; do
   if test -e "$path"; then devices+=(--device "$path"); fi
 done
-# Host networking supports server/client communication by the allocated node IP.
-# This whole-node preset exposes the node's NPU devices; partial-card presets
-# must narrow this device list. Never delete or take over an existing container.
-exec docker run --detach --name "$container" --network host --ipc host \
-  --user 0 "${devices[@]}" "${mounts[@]}" \
+mounts=()
+for path in /usr/local/Ascend/driver /usr/local/dcmi /usr/local/bin/npu-smi \
+    /etc/ascend_install.info /usr/local/sbin /home /data /tmp /mnt /root/.cache; do
+  if test -e "$path"; then mounts+=(--volume "$path:$path"); fi
+done
+if test -d /root; then mounts+=(--volume /root:/host_root); fi
+if test -f /usr/share/zoneinfo/Asia/Shanghai; then
+  mounts+=(--volume /usr/share/zoneinfo/Asia/Shanghai:/etc/localtime:ro)
+fi
+# Whole-node A3 preset; the supplied startup requires privileged mode and 128 GiB shm.
+exec docker run --detach --name "$container" --network host --shm-size 128g \
+  --privileged --user 0 --workdir /home "${devices[@]}" "${mounts[@]}" \
   --entrypoint /bin/bash "$image" -lc 'exec sleep infinity'

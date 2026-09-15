@@ -2815,7 +2815,7 @@ tbody tr:last-child td {
 .workflow-composer [role="tabpanel"][hidden] { display: none; }
 .workflow-composer .workflow-environments { grid-template-columns: 1fr; gap: 12px; }
 .workflow-environment, .workflow-job { padding: 16px; border-radius: 7px; background: #fff; }
-.workflow-environment-row { display: grid; grid-template-columns: minmax(140px, .8fr) minmax(120px, .7fr) minmax(140px, .8fr) minmax(180px, 1.4fr); align-items: end; gap: 12px; }
+.workflow-environment-row { display: grid; grid-template-columns: minmax(140px, .8fr) minmax(120px, .7fr) minmax(140px, .8fr) minmax(180px, 1.4fr); align-items: start; gap: 12px; }
 .workflow-job-row { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(220px, 1.6fr) 90px 100px auto; align-items: end; gap: 12px; }
 .workflow-job-row > button { margin-bottom: 13px; }
 .workflow-job-row .field, .workflow-environment-row .field, .workflow-artifact-row .field { min-width: 0; margin: 0; }
@@ -2900,3 +2900,7 @@ tbody tr:last-child td {
 .workflow-allocation { margin: 18px 0; }
 .workflow-allocation th,.workflow-allocation td { padding: 8px; vertical-align: top; }
 .workflow-allocation td code { overflow-wrap: anywhere; }
+
+.workflow-environment-row > .field > span, .workflow-environment-row .workflow-image-picker .field > span { min-height: 20px; line-height: 20px; }
+.workflow-environment-row input, .workflow-environment-row .choice-buttons button { min-height: 40px; box-sizing: border-box; }
+.workflow-environment > .workflow-bootstrap { margin-top: 12px; }

@@ -15,7 +15,7 @@
     "wait_minutes": 60,
     "purpose": "task",
     "shared_storage_id": null,
-    "note": "Original nightly Qwen3 TP1; existing-image runtime"
+    "note": "Original nightly Qwen3 TP1; selected source installed over image NPU dependencies"
   },
   "retain_minutes": 0,
   "environments": [
@@ -58,13 +58,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/install-server.sh\" install",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/install-server.sh\"",
           "files": [
             {
               "name": "hive_presets/qwen3-30b-a3b-w8a8/install-server.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/image-runtime.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
             }
           ]
         }
@@ -78,13 +78,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/install-server.sh\" verify",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/verify-server.sh\"",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/install-server.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/verify-server.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/image-runtime.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
             }
           ]
         }
@@ -129,13 +129,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/install-client.sh\" install",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/install-client.sh\"",
           "files": [
             {
               "name": "hive_presets/qwen3-30b-a3b-w8a8/install-client.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/image-runtime.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
             }
           ]
         }
@@ -149,13 +149,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/install-client.sh\" verify",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/verify-client.sh\"",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/install-client.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/verify-client.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/image-runtime.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
             }
           ]
         }
@@ -185,19 +185,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/server-job.sh\" serve-prepare",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/serve-prepare.sh\"",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/server-job.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/serve-prepare.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/install-server.sh"
-            },
-            {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/image-runtime.sh"
-            },
-            {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/case-common.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
             },
             {
               "name": "hive_presets/qwen3-30b-a3b-w8a8/nightly_cli.py"
@@ -217,19 +211,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/server-job.sh\" serve",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/serve.sh\"",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/server-job.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/serve.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/install-server.sh"
-            },
-            {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/image-runtime.sh"
-            },
-            {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/case-common.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
             }
           ]
         }
@@ -244,19 +232,10 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/server-job.sh\" ready",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/ready.sh\"",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/server-job.sh"
-            },
-            {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/install-server.sh"
-            },
-            {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/image-runtime.sh"
-            },
-            {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/case-common.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/ready.sh"
             }
           ]
         }
@@ -315,19 +294,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/client-job.sh\" bench-prepare",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/bench-prepare.sh\"",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/client-job.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/bench-prepare.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/install-client.sh"
-            },
-            {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/image-runtime.sh"
-            },
-            {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/case-common.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
             },
             {
               "name": "hive_presets/qwen3-30b-a3b-w8a8/nightly_cli.py"
@@ -350,19 +323,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/client-job.sh\" bench",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/bench.sh\"",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/client-job.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/bench.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/install-client.sh"
-            },
-            {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/image-runtime.sh"
-            },
-            {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/case-common.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
             }
           ]
         }
@@ -447,19 +414,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/client-job.sh\" verify-prepare",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/verify-prepare.sh\"",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/client-job.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/verify-prepare.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/install-client.sh"
-            },
-            {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/image-runtime.sh"
-            },
-            {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/case-common.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
             },
             {
               "name": "hive_presets/qwen3-30b-a3b-w8a8/nightly_cli.py"
@@ -479,19 +440,13 @@
           "uploaded_content": null,
           "runner": null,
           "external": false,
-          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/client-job.sh\" verify",
+          "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/qwen3-30b-a3b-w8a8/verify.sh\"",
           "files": [
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/client-job.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/verify.sh"
             },
             {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/install-client.sh"
-            },
-            {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/image-runtime.sh"
-            },
-            {
-              "name": "hive_presets/qwen3-30b-a3b-w8a8/case-common.sh"
+              "name": "hive_presets/qwen3-30b-a3b-w8a8/runtime.sh"
             },
             {
               "name": "hive_presets/qwen3-30b-a3b-w8a8/nightly_cli.py"
@@ -518,32 +473,8 @@
               "node_alias": "node0"
             }
           ],
-          "path": "${HIVE_OUTPUT_DIR}/result.json",
-          "label": "AISBench 原生结果 JSON",
-          "kind": "file"
-        },
-        {
-          "environment": "",
-          "targets": [
-            {
-              "environment": "client_env",
-              "node_alias": "node0"
-            }
-          ],
-          "path": "${HIVE_OUTPUT_DIR}/result.csv",
-          "label": "AISBench 原生结果 CSV",
-          "kind": "file"
-        },
-        {
-          "environment": "",
-          "targets": [
-            {
-              "environment": "client_env",
-              "node_alias": "node0"
-            }
-          ],
           "path": "${HIVE_OUTPUT_DIR}/result-location.json",
-          "label": "结果文件来源与摘要",
+          "label": "校验输入来源",
           "kind": "file"
         },
         {
@@ -556,18 +487,6 @@
           ],
           "path": "${HIVE_OUTPUT_DIR}/verification.json",
           "label": "原 nightly 阈值判定",
-          "kind": "file"
-        },
-        {
-          "environment": "",
-          "targets": [
-            {
-              "environment": "client_env",
-              "node_alias": "node0"
-            }
-          ],
-          "path": "${HIVE_OUTPUT_DIR}/environment-report.json",
-          "label": "当前客户端环境",
           "kind": "file"
         }
       ]

@@ -1,39 +1,39 @@
 # Qwen3-30B-A3B-W8A8 nightly 预置
 
-此目录归档一个 nightly 用例，来源 SHA、YAML 路径、AISBench SHA 和预置人员见 `source.json`。载入默认使用 main，提交时固定执行源码版本。服务器运行所选镜像已有 vLLM / Ascend 二进制，不自动把请求源码覆盖安装到镜像；实际环境版本记录在 environment-report.json。
+一个目录对应一个 nightly YAML。来源 SHA、YAML 路径、AISBench SHA 和预置人员见 source.json；载入默认 main，提交时固定执行源码。
 
-## 环境准备与用例分离
+## 环境准备
 
-- `bootstrap.sh`：完整、可编辑的 Docker 创建命令。Hive 先准备并固定镜像 ID，脚本检查镜像后直接 docker run，不调用服务器上的个人脚本。采用 host 网络、host IPC；按存在路径透传 Ascend 设备与只读驱动，挂载 `/mnt` 以保留资源映射路径。CANN、Python 和 vLLM 使用镜像内版本。
-- `install-server.sh install` / `verify`：复用服务器镜像软件，检查导入和 vLLM CLI，记录实际模块版本。安装与校验均不读取 nightly YAML 或上游 `.github` 文件。
-- `install-client.sh install` / `verify`：从 `aisbench-source` 包映射创建独立固定 SHA 的 AISBench checkout 和 venv，可使用 `python-wheelhouse`；约束已有大包版本，检查 CLI 并记录实际依赖。脚本不读取任何模型或用例配置。
-- `image-runtime.sh`：两种环境共用的运行时加载函数，过滤请求 checkout 的 PYTHONPATH，加载镜像内厂商 CANN / ATB 环境。服务端要求 CANN；客户端不以缺少 CANN 脚本为错误。
+环境安装不读取模型或 nightly 参数，服务端和客户端分别准备。
 
-安装与校验步骤各自展示本环境脚本及公共运行时附件，可直接编辑。默认环境目录分别是 `/opt/hive-env/server` 和 `/opt/hive-env/client`，可通过对应脚本中的普通 TASK_SERVER_DEPS / TASK_CLIENT_DEPS 修改。
+- bootstrap.sh 将用户提供的 start-docker-A3.sh 配置归档为自包含 Docker 命令：host 网络、128 GiB 共享内存、privileged、Ascend 设备及驱动、/home、/data、/tmp、/mnt 等现有路径挂载。Hive 先准备镜像，脚本不调用宿主个人脚本，不删除已有容器。这是整机 A3 预置，部分卡或其他硬件需调整设备配置。
+- install-server.sh 参考用户提供的 script.md：读取所选 Ascend checkout 的 .github/vllm-main-verified.commit，将对应 vLLM 安装到容器私有 /opt/hive-env/server/vllm；安装 setuptools-rust、运行 build_rust.sh，然后使用 VLLM_TARGET_DEVICE=empty pip install -e . --no-build-isolation --no-index --no-deps。随后从 $HIVE_SOURCE_DIR 安装所选 vLLM-Ascend。PyTorch、CANN、Triton 等底层依赖沿用镜像。脚本在 checkout 根目录运行，不自动改写上游 setup.py，不复制参考文档中的代理或禁用 TLS 配置。
+- verify-server.sh 单独检查导入与 CLI。安装报告记录实际模块位置、版本、两仓库 SHA 和源码差异摘要，不能把镜像旧版本冒充提交的源码。
+- install-client.sh 使用 aisbench-source 包映射创建私有固定 SHA checkout 与 venv，可使用 python-wheelhouse；约束已有大包以避免替换 Torch/NPU。verify-client.sh 单独检查 CLI。
+- runtime.sh 是唯一共用 Shell helper，加载镜像 CANN/ATB 环境，不屏蔽已安装的源码路径，不处理模型和用例。
 
-Bootstrap 是当前整机 A3 用例的设备配置，部分卡预置应在可见脚本中收窄 devices 列表；它不会接管或删除同名容器。映射路径不在 `/mnt` 时，需在 bootstrap 挂载其目录。宿主仅需 Docker、Ascend 驱动/设备及资源文件；无额外宿主用户脚本依赖。
+安装与校验均展示自己的脚本和 runtime.sh，作业不再附安装脚本。编译工具链及 CANN/PyTorch 兼容性需由镜像满足；本轮没有实际安装或验证。
 
-## 每个作业的脚本
+## 每个阶段一个入口文件
 
-| 作业 | 环境 | 执行内容 | 业务附件 |
-| --- | --- | --- | --- |
-| job0 | server_env | 生成服务参数、原生 vLLM serve、HTTP 就绪检查 | server-job.sh、case-common.sh、nightly_cli.py、YAML |
-| job1 | client_env | 生成 AISBench 配置、调用官方 AISBench CLI | client-job.sh、case-common.sh、nightly_cli.py、aisbench_config.py、YAML |
-| job2 | client_env | 定位 job1 输出，校验原 nightly 阈值 | client-job.sh、case-common.sh、nightly_cli.py、aisbench_config.py、YAML |
+| 作业 | 环境 | 前检查 | 主执行 | 就绪检查 |
+| --- | --- | --- | --- | --- |
+| job0 | server_env | serve-prepare.sh | serve.sh | ready.sh |
+| job1 | client_env | bench-prepare.sh | bench.sh | — |
+| job2 | client_env | verify-prepare.sh | verify.sh | — |
 
-每个步骤还附带其直接调用的环境脚本和 image-runtime.sh；只在需要解析配置的步骤展示 Python / YAML。server 环境和 job0 不依赖 AISBench 文件。`case-common.sh` 仅共享用例路径、端口、参数读取和环境报告复制，环境安装不会调用它。
+每个文件直接执行该阶段，不再通过长脚本的命令参数分发。服务准备读取 YAML 并生成原生 vLLM 命令；压测准备生成 AISBench 配置，压测调用官方 CLI。涉及 YAML 的阶段带 nightly_cli.py 与 YAML，仅 AISBench 配置生成和阈值判定需要 aisbench_config.py。服务启动仅附自身与 runtime.sh，就绪检查只有 ready.sh。
 
-服务端和客户端可位于同一台机器不同容器，容器通过所申请节点 IP 通信。此预置为原单节点用例，服务地址取 `$HIVE_NODE0_IP`；修改成分布式用例需同步调整启动命令和原 YAML。
+nightly_cli.py 和 aisbench_config.py 是 Hive 预置适配代码。模型、并行度、数据集、请求长度与阈值编辑原 YAML；端口和用例选择在准备脚本中的 TASK_PORT / TASK_CASE / TASK_BENCHMARK 修改，就绪脚本端口需同步。
 
-## 参数与输出
+## 产物归属
 
-- 模型、量化、并行度、数据集、请求长度与阈值：编辑原 YAML。
-- 服务端口、用例选择：编辑 case-common.sh 的 TASK_PORT / TASK_CASE / TASK_BENCHMARK。
-- 服务启动设置：编辑 server-job.sh；压测与结果校验：编辑 client-job.sh。
-- 每个作业输出写入 `$HIVE_OUTPUT_DIR`，实际目录为 `/var/tmp/hive/outputs/<任务ID>/<作业实例ID>`。
-- job0 保存 server.json 与环境报告。job1 保存 manifest.json、AISBench 日志、完整 outputs 目录和环境报告。job2 保存结果 JSON/CSV、来源记录和判定报告。
-- job2 在同一 client_env 中读取相邻 job1 输出；将作业改为多节点展开时，应同时调整这一显式输入路径。
+HIVE_OUTPUT_DIR=/var/tmp/hive/outputs/<任务ID>/<作业实例ID>，job1 与 job2 的同名路径不会覆盖。
 
-平台只负责容器、调度、命令和归档。`nightly_cli.py` 与 `aisbench_config.py` 是 Hive 预置适配代码；执行用例来自原 YAML，AISBench 使用官方 CLI。历史 task.sh / nightly_environment.py 不在新预置附件清单中，不再参与新任务。
+- job0：server.json、服务端环境报告。
+- job1：AISBench 配置、manifest、客户端环境报告和完整 results（AISBench outputs）目录。
+- job2：只归档 verification.json 和 result-location.json。同一 client_env 中只读 ../job1/manifest.json、日志及原始结果，在自己的目录复制 JSON/CSV 作为校验输入，不回写 job1，也不再次归档原始结果和环境报告。
 
-本次仅编辑前端与脚本，未运行测试、安装或 NPU 任务；不能据此声称自包含 Docker 配置已完成实机验证。
+此预置对应单节点用例。改为多节点执行时需同步调整服务地址及 job2 显式输入位置。各步骤附件均可前端编辑。历史 task.sh、server-job.sh、client-job.sh、case-common.sh、image-runtime.sh、nightly_environment.py 不在新预置附件清单中。
+
+本轮仅修改脚本与配置，未运行测试、环境安装或 NPU 任务。

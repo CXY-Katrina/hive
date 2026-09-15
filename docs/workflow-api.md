@@ -82,7 +82,7 @@ New tasks always allocate environments and release them after all jobs and clean
 
 The six public variable groups are documented in [workflow variables](workflow-variables.md). Container numbering follows environment order and numeric node order, globally consistent across all jobs. No endpoint/host/port/image/source-SHA JSON variables are introduced for new tasks; business scripts own those settings.
 
-Task files are displayed under their owning steps and are editable, with same-name edits synchronized; there is no global file summary. The Qwen3 preset separates environment runtime/install/verification from server and client job scripts. Each step includes its needed script dependencies. Old drafts without script attachments display an explicit reload notice; restoration recovers missing job environments but does not overwrite edited commands.
+Task files are displayed under their owning steps and are editable, with same-name edits synchronized; there is no global file summary. The Qwen3 preset separates environment runtime/install/verification from standalone prepare, execution, readiness and verification scripts. Each step includes its needed script dependencies. Old drafts without script attachments display an explicit reload notice; restoration recovers missing job environments but does not overwrite edited commands.
 
 `post` is labeled “执行后检查”: a script that runs after the main commands, with nonzero exit failing the job. It is not a manual approval gate. Service `ready` checks are separate and unblock downstream jobs only after service readiness succeeds.
 
