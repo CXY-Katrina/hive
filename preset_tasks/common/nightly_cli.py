@@ -5,7 +5,6 @@ import argparse
 import ast
 import csv
 import hashlib
-import importlib.util
 import json
 import re
 import shlex
@@ -15,14 +14,69 @@ from pathlib import Path
 
 import yaml
 
-def aisbench_helpers():
-    # Server preparation only reads YAML and never needs AISBench helpers.
-    spec = importlib.util.spec_from_file_location(
-        "hive_common_aisbench_config", Path(__file__).resolve().with_name("aisbench_config.py")
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def render_dataset_config(content: str, dataset_path: str) -> str:
+    return re.sub(r"path=.*", lambda _: f"path={dataset_path!r},", content)
+
+
+def render_request_config(content: str, options: dict) -> str:
+    fields = {
+        "model": options["model"],
+        "host_port": options["port"],
+        "host_ip": options["host_ip"],
+        "max_out_len": options["max_out_len"],
+        "batch_size": options["batch_size"],
+        "trust_remote_code": options.get("trust_remote_code", True),
+    }
+    for key, value in fields.items():
+        pattern = key + (r"=.*" if key in ("model", "trust_remote_code") else r".*")
+        content = re.sub(pattern, lambda _, key=key, value=value: f"{key}={value!r},", content)
+    for key in ("top_p", "top_k", "seed", "min_p", "presence_penalty", "repetition_penalty"):
+        if options.get(key):
+            content = re.sub(
+                r"ignore_eos.*", lambda _, key=key: f"ignore_eos=False,\n            {key}={options[key]!r},", content
+            )
+    if options.get("thinking"):
+        content = re.sub(
+            r"ignore_eos.*", 'ignore_eos=False,\n            chat_template_kwargs={"thinking": True},', content
+        )
+    if options["task_type"] == "performance":
+        content = re.sub(r"path=.*", lambda _: f"path={options['model_path']!r},", content)
+        content = re.sub(r"request_rate.*", lambda _: f"request_rate={options.get('request_rate', 0)!r},", content)
+        content = re.sub(r"temperature.*", "temperature=0,", content)
+        content = re.sub(r"ignore_eos.*", "ignore_eos=True,", content)
+    if options["task_type"] in ("accuracy", "spec_decode"):
+        content = re.sub(r"temperature.*", "temperature=0.6,", content)
+    if options.get("temperature") is not None:
+        content = re.sub(r"temperature.*", lambda _: f"temperature={options['temperature']!r},", content)
+    if options.get("no_pred"):
+        content = re.sub(r"pred_postprocessor.*", "#pred_postprocessor", content)
+    return content
+
+
+def verify_performance(
+    result_json, baseline, threshold=0.97, *, input_throughput_threshold=None, tpot_threshold=None, tpot=None
+):
+    """The native runner's performance assertions, without result discovery/run."""
+    output_throughput = result_json["Output Token Throughput"]["total"].replace("token/s", "")
+    if not float(output_throughput) >= threshold * baseline:
+        raise AssertionError(
+            "Performance verification failed. "
+            f"The current Output Token Throughput is {output_throughput} token/s, "
+            f"which is not greater than or equal to {threshold} * baseline {baseline}."
+        )
+    if input_throughput_threshold is not None:
+        input_throughput = str(result_json["Input Token Throughput"]["total"]).replace("token/s", "")
+        if not float(input_throughput) >= float(input_throughput_threshold):
+            raise AssertionError(
+                f"Input Token Throughput verification failed. The current value is {input_throughput} token/s, "
+                f"which is not greater than {input_throughput_threshold} token/s."
+            )
+    if tpot_threshold is not None:
+        tpot = float(str(tpot).replace("ms", ""))
+        if not tpot <= float(tpot_threshold):
+            raise AssertionError(
+                f"TPOT verification failed. The current TPOT is {tpot} ms, which is greater than {tpot_threshold} ms."
+            )
 
 
 def select_case(path, case_name, benchmark):
@@ -55,7 +109,6 @@ def write_private(directory, name, content):
 
 
 def prepare(args, case, config):
-    helpers = aisbench_helpers()
     output = Path(args.output_dir).resolve()
     home = Path(args.benchmark_home).resolve()
     if output.is_relative_to(home):
@@ -72,7 +125,7 @@ def prepare(args, case, config):
         port=args.port,
         task_type=config["case_type"],
     )
-    model = helpers.render_request_config(model, options)
+    model = render_request_config(model, options)
     dataset_path = args.dataset_path
     dataset_digest = None
     if Path(dataset_path).is_file():
@@ -88,7 +141,7 @@ def prepare(args, case, config):
         dataset_path = str(directory)
     if config["dataset_conf"].startswith("textvqa"):
         dataset_path = str(Path(dataset_path) / "textvqa_val.jsonl")
-    dataset = helpers.render_dataset_config(dataset, dataset_path)
+    dataset = render_dataset_config(dataset, dataset_path)
     tree = ast.parse(dataset)
     names = [
         target.id
@@ -196,7 +249,7 @@ def verify(args, config):
     }
     result.update(provenance(args, config))
     try:
-        aisbench_helpers().verify_performance(
+        verify_performance(
             data,
             config.get("baseline", 1),
             config.get("threshold", 0.97),

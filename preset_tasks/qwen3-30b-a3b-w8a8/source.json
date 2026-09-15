@@ -8,9 +8,7 @@
   "benchmark": "perf",
   "aisbench_repository": "https://github.com/AISBench/benchmark",
   "aisbench_commit": "0da56eadb2ac85c31c2540f4f5b69af3ec5717a5",
-  "helper_files": [
-    "bootstrap.sh"
-  ],
+  "helper_files": [],
   "upload_prefix": "hive_presets/qwen3-30b-a3b-w8a8/",
   "id": "Qwen3-30B-A3B-W8A8",
   "name": "Qwen3-30B-A3B-W8A8 nightly",
@@ -34,19 +32,16 @@
   },
   "default_ref": "main",
   "common_files": [
+    "bootstrap-a3.sh",
     "runtime.sh",
     "install-server.sh",
     "verify-server.sh",
     "install-client.sh",
     "verify-client.sh",
-    "serve-prepare.sh",
     "serve.sh",
     "ready.sh",
-    "bench-prepare.sh",
     "bench.sh",
-    "verify-prepare.sh",
     "verify.sh",
-    "nightly_cli.py",
-    "aisbench_config.py"
+    "nightly_cli.py"
   ]
 }

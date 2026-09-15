@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2] / "common"
 CONFIG = (
     Path(__file__).parent / "fixtures/upstream/tests/e2e/nightly/single_node/models/configs/Qwen3-30B-A3B-W8A8.yaml"
 )
