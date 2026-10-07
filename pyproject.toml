@@ -7,7 +7,7 @@ name = "hive-npu"
 version = "0.1.0"
 description = "Agentless NPU resource management over SSH"
 requires-python = ">=3.11"
-dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.34,<1", "PyMySQL>=1.1,<2", "paramiko>=3.5,<5", "cryptography>=44"]
+dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.34,<1", "PyMySQL>=1.1,<2", "paramiko>=3.5,<5", "cryptography>=44", "bcrypt>=4,<6"]
 
 [project.optional-dependencies]
 test = ["httpx>=0.28,<1"]

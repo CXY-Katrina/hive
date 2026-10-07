@@ -618,3 +618,20 @@ MySQL 测试使用独立随机测试库，GitHub 与调度测试的 SSH 都在�
 现用脚本的来源、参数及删除说明见 [预置脚本来源与参数](preset_tasks/SCRIPT_ORIGINS.md)。
 
 A3 容器创建脚本维护在 `preset_tasks/common/bootstrap-a3.sh`，与模型无关。`common/nightly_cli.py` 是唯一的 Python 适配文件，负责 YAML 与官方 vLLM/AISBench 命令、结果格式之间的转换；不再单独维护 `aisbench_config.py` 或 prepare Shell 入口。
+
+### Linux / openEuler 部署实例
+
+197 上的部署使用 `/opt/hive` 存放 Git 代码与 Python 虚拟环境，`/opt/hive-python` 存放独立 Python 3.12，`/opt/hive-data` 存放数据库和运行数据。配置位于 `/opt/hive/.env`，不纳入 Git。API 监听 `0.0.0.0:18000`，独立 MySQL 仅监听 `127.0.0.1:13316`；不修改已有 3306 实例。未迁移旧数据。
+
+应用使用 `hive-platform` 系统用户，沿用 `hive-api.service`、`hive-worker.service`，数据库为 `hive-mysql.service`，均设置开机启动：
+
+```bash
+systemctl status hive-api hive-worker hive-mysql
+systemctl restart hive-api hive-worker
+journalctl -u hive-api -u hive-worker -n 100 --no-pager
+curl http://127.0.0.1:18000/api/health
+```
+
+openEuler 开启 SELinux 时，自定义数据库目录需要 `mysqld_db_t` 标签，自定义端口需要 `mysqld_port_t` 标签；无需关闭 SELinux。应用服务当前通过 `127.0.0.1:7891` 的已有 SSH 转发访问外网。该转发若断开，GitHub/镜像查询等外网操作会受影响，页面和本地数据库仍可运行。
+
+前端在构建机执行 `npm --prefix frontend run build` 后，将 `frontend/dist` 同步到服务器相同目录。更新后以配置中的 Python 环境执行 `hive migrate --env-file /opt/hive/.env`，再重启两个应用服务。私钥、数据库密码、管理员密码哈希及运行数据不提交到 GitHub。
