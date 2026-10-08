@@ -32,7 +32,7 @@
   },
   "default_ref": "main",
   "common_files": [
-    "bootstrap-a3.sh",
+    "bootstrap.sh",
     "runtime.sh",
     "install-server.sh",
     "verify-server.sh",

@@ -2,13 +2,13 @@
 
 一个目录对应一个 nightly YAML。来源 SHA、YAML 路径、AISBench SHA 和预置人员见 source.json；载入默认 main，提交时固定执行源码。
 
-公共脚本现统一在 `../common/`，下发路径为 `hive_presets/common/`；本目录保留用例 YAML、工作流与来源元数据；硬件相关创建脚本是 common/bootstrap-a3.sh。所有脚本来源和参数见 [脚本清单](../SCRIPT_ORIGINS.md)。旧兼容脚本已删除。
+公共脚本现统一在 `../common/`，下发路径为 `hive_presets/common/`；本目录保留用例 YAML、工作流与来源元数据；硬件相关创建脚本是 common/bootstrap.sh。所有脚本来源和参数见 [脚本清单](../SCRIPT_ORIGINS.md)。旧兼容脚本已删除。
 
 ## 环境准备
 
 环境安装不读取模型或 nightly 参数，服务端和客户端分别准备。
 
-- common/bootstrap-a3.sh 将用户提供的 start-docker-A3.sh 配置归档为自包含 Docker 命令：host 网络、128 GiB 共享内存、privileged、Ascend 设备及驱动、/home、/data、/tmp、/mnt 等现有路径挂载。Hive 先准备镜像，脚本不调用宿主个人脚本，不删除已有容器。这是整机 A3 预置，部分卡或其他硬件需调整设备配置。
+- common/bootstrap.sh 将用户提供的 start-docker-A3.sh 配置归档为自包含 Docker 命令：host 网络、128 GiB 共享内存、privileged、Ascend 设备及驱动、/home、/data、/tmp、/mnt 等现有路径挂载。Hive 先准备镜像，脚本不调用宿主个人脚本，不删除已有容器。设备按主机现有 /dev/davinci 数字设备动态映射，适配 A2/A3/A5 的芯片数量；不固定为 16 个设备。
 - install-server.sh 参考用户提供的 script.md：读取所选 Ascend checkout 的 .github/vllm-main-verified.commit，将对应 vLLM 安装到容器私有 /opt/hive-env/server/vllm；安装 setuptools-rust、运行 build_rust.sh，然后使用 VLLM_TARGET_DEVICE=empty pip install -e . --no-build-isolation --no-index --no-deps。随后从 $HIVE_SOURCE_DIR 安装所选 vLLM-Ascend。PyTorch、CANN、Triton 等底层依赖沿用镜像。脚本在 checkout 根目录运行，不自动改写上游 setup.py，不复制参考文档中的代理或禁用 TLS 配置。
 - verify-server.sh 单独检查导入与 CLI。安装报告记录实际模块位置、版本、两仓库 SHA 和源码差异摘要，不能把镜像旧版本冒充提交的源码。
 - install-client.sh 使用 aisbench-source 包映射创建私有固定 SHA checkout 与 venv，可使用 python-wheelhouse；约束已有大包以避免替换 Torch/NPU。verify-client.sh 单独检查 CLI。

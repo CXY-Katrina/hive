@@ -6,7 +6,7 @@
 
 | 文件 | 来源 | 用途与位置参数（依次） |
 | --- | --- | --- |
-| `common/bootstrap-a3.sh` | 根据用户提供的 `start-docker-A3.sh` 配置改写并归档 | 整机 A3 Docker 创建；镜像、容器名。不调用服务器上的个人脚本。 |
+| `common/bootstrap.sh` | 根据用户提供的 `start-docker-A3.sh` 配置改写并归档 | 动态发现 NPU 设备的 Docker 创建；镜像、容器名。不调用服务器上的个人脚本。 |
 | `common/runtime.sh` | Hive 新增 | 加载镜像已有 CANN/ATB 环境；供其他脚本 source，无模型配置。 |
 | `common/install-server.sh` | Hive 新增，安装命令参考用户提供的 `script.md` | 服务端依赖目录；读取所选源码内 `.github/vllm-main-verified.commit`，安装匹配 vLLM 和所选 vLLM-Ascend。 |
 | `common/verify-server.sh` | Hive 新增 | 服务端依赖目录；检查导入、CLI、环境报告。 |

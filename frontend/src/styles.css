@@ -2915,3 +2915,14 @@ tbody tr:last-child td {
 .workflow-job-row > .job-delete-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; padding: 9px 14px; margin-bottom: 0; border: 1px solid #c9665c; border-radius: 6px; background: #fff0ed; color: #a83227; font-weight: 700; white-space: nowrap; cursor: pointer; }
 .workflow-job-row > .job-delete-button:hover { background: #a83227; border-color: #a83227; color: white; }
 .workflow-job-row > .job-delete-button:focus-visible { outline: 3px solid #dba89f; outline-offset: 3px; }
+
+/* Keep the request page overview compact without unmounting draft fields. */
+.collapsible-panel > summary { cursor: pointer; list-style: none; }
+.collapsible-panel > summary::-webkit-details-marker { display: none; }
+.collapsible-panel > summary::before { content: "▸"; color: var(--accent, #276d55); flex: 0 0 auto; }
+.collapsible-panel[open] > summary::before { content: "▾"; }
+.collapsible-panel > summary h2, .collapsible-panel > summary h3 { margin: 0; }
+.collapsible-panel .panel-toggle { margin-left: auto; font-size: 12px; color: #647b6d; white-space: nowrap; }
+.collapsible-panel:not([open]) > summary { border-bottom: 0; margin-bottom: 0; }
+.policy-panel.collapsible-panel { align-self: start; }
+.policy-panel.collapsible-panel > summary { display: flex; align-items: center; gap: 10px; }

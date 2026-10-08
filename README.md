@@ -617,7 +617,7 @@ MySQL 测试使用独立随机测试库，GitHub 与调度测试的 SSH 都在�
 
 现用脚本的来源、参数及删除说明见 [预置脚本来源与参数](preset_tasks/SCRIPT_ORIGINS.md)。
 
-A3 容器创建脚本维护在 `preset_tasks/common/bootstrap-a3.sh`，与模型无关。`common/nightly_cli.py` 是唯一的 Python 适配文件，负责 YAML 与官方 vLLM/AISBench 命令、结果格式之间的转换；不再单独维护 `aisbench_config.py` 或 prepare Shell 入口。
+A3 容器创建脚本维护在 `preset_tasks/common/bootstrap.sh`，与模型无关。`common/nightly_cli.py` 是唯一的 Python 适配文件，负责 YAML 与官方 vLLM/AISBench 命令、结果格式之间的转换；不再单独维护 `aisbench_config.py` 或 prepare Shell 入口。
 
 ### Linux / openEuler 部署实例
 

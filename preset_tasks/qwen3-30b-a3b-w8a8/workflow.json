@@ -42,10 +42,10 @@
         "uploaded_content": null,
         "runner": null,
         "external": false,
-        "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/common/bootstrap-a3.sh\" \"${image}\" \"${container_name}\"",
+        "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/common/bootstrap.sh\" \"${image}\" \"${container_name}\"",
         "files": [
           {
-            "name": "hive_presets/common/bootstrap-a3.sh"
+            "name": "hive_presets/common/bootstrap.sh"
           }
         ]
       },
@@ -113,10 +113,10 @@
         "uploaded_content": null,
         "runner": null,
         "external": false,
-        "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/common/bootstrap-a3.sh\" \"${image}\" \"${container_name}\"",
+        "launch": "bash \"$HIVE_SOURCE_DIR/hive_presets/common/bootstrap.sh\" \"${image}\" \"${container_name}\"",
         "files": [
           {
-            "name": "hive_presets/common/bootstrap-a3.sh"
+            "name": "hive_presets/common/bootstrap.sh"
           }
         ]
       },
