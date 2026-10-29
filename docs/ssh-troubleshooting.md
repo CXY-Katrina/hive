@@ -43,3 +43,28 @@ ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password root@192.168
 - 采样时间持续不更新：确认 worker 已启动且连接同一个数据库。
 
 提供诊断输出即可，不要发送 .env、密码、密钥或完整数据库。不要为排查重新生成 HIVE_SECRET_KEY。
+
+
+## 已复现：Ascend950DT / npu-smi 26.2.0.b020 表头不兼容
+
+只读检查命令（将 NODE_IP 替换为节点地址，SSH 交互输入密码）：
+
+```powershell
+ssh root@NODE_IP "uname -m; npu-smi info -m; npu-smi info"
+```
+
+已连接实机并将 `npu-smi info -m` 原始输出传给当前 `hive.hardware.parse_mapping`，复现 `Unsupported device mapping header`。这是设备输出解析失败，不是 SSH 登录失败。
+
+实际映射表头：
+
+```text
+NPU ID  Slot ID  Chip ID  Chip Phy-ID  Chip Name
+```
+
+当前解析器要求 `NPU ID / Chip ID / Chip Logic ID / 可选 Chip Phy-ID / Chip Name`。该实机没有 `Chip Logic ID`，因此拒绝解析。实机还有以下格式差异：
+
+- 指标表使用 `NPU Util(%)`，而当前解析器要求 `AICore(%)`。
+- 指标和进程表以 NPU ID 为设备索引，布局与当前双芯表不同。
+- 进程表新增 `Process id in container` 列。
+
+截至本记录，尚未完成这一格式的采集适配。不能只替换表头：需要明确逻辑设备编号与物理编号映射，并确认 NPU Util 与 AI Core 的统计语义，再适配指标、进程识别和空闲回收判断。未知数据应继续保持不可分配，不能当成零利用率。检查仅运行只读命令，没有修改驱动、容器或正在运行的业务。
