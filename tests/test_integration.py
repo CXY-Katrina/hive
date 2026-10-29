@@ -366,7 +366,7 @@ class MySQLIntegration(unittest.TestCase):
         self.assertIsNone(self.resources.reserve(unavailable['id']))
         self.assertEqual(self.resources.get(unavailable['id'])['status'],'FAILED')
 
-    def test_confirmed_driver_baseline_tolerance_matches_allocation_and_release(self):
+    def test_resident_memory_matches_allocation_and_release(self):
         from hive.cleanup import Cleanup
         from unittest.mock import Mock
         node=self.node(cards=1)
@@ -386,10 +386,6 @@ class MySQLIntegration(unittest.TestCase):
         cleanup=Cleanup(self.db,Mock(),self.inventory,Mock(),self.resources)
         with self.db.transaction() as c:
             c.execute('UPDATE devices SET memory_used=%s WHERE id=%s',(baseline+2*1024**2+1,ident))
-        self.assertFalse(cleanup.run(request['id']))
-        self.assertEqual(self.resources.get(request['id'])['status'],'RELEASING')
-        with self.db.transaction() as c:
-            c.execute('UPDATE devices SET memory_used=%s WHERE id=%s',(baseline+2*1024**2,ident))
         self.assertTrue(cleanup.run(request['id']))
         self.assertEqual(self.resources.get(request['id'])['status'],'RELEASED')
 

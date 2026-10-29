@@ -41,13 +41,24 @@ def device_status(device, stamp=None, stale_seconds=45):
         return "unknown"
     if device.get("request_id"):
         return "allocated"
-    busy = bool(decode(device.get("processes"), [])) or (device.get("ai_core") or 0) > 0
-    used = device.get("memory_used")
-    if used is None:
-        return "unknown"
-    if used > idle_memory_limit(device):
-        busy = True
-    return "external" if busy else "available"
+    return "external" if device_has_workload(device) else "available"
+
+
+def device_has_workload(device):
+    """Use complete process/compute evidence; Ascend HBM includes resident memory.
+
+    Callers must separately reject stale, incomplete or missing measurements.
+    Non-Ascend adapters retain their existing memory-baseline requirement.
+    """
+    if decode(device.get("processes"), []) or (device.get("ai_core") or 0) > 0:
+        return True
+    extensions = decode(device.get("extensions"), {}) or {}
+    if (extensions.get("npu_utilization") or 0) > 0:
+        return True
+    if device.get("adapter") == "ascend":
+        return False
+    return device["memory_used"] > idle_memory_limit(device)
+
 
 
 class Inventory:

@@ -6,7 +6,7 @@ from pathlib import Path
 from hive.config import Settings
 from hive.db import Database
 from hive.domain import DomainError
-from hive.inventory import Inventory
+from hive.inventory import Inventory, device_status
 from hive.ssh import SSHTransport
 
 
@@ -25,6 +25,17 @@ def main():
     db = Database(settings)
     sql = 'SELECT id,host,port,ssh_user,status,reason,sampled_at FROM nodes WHERE deleted_at IS NULL'
     nodes = db.all(sql + (' AND host=%s' if args.host else ''), (args.host,) if args.host else ())
+    for node in nodes:
+        cards = db.all("""SELECT d.*,n.adapter,n.maintenance,o.request_id FROM devices d
+                       JOIN nodes n ON n.id=d.node_id LEFT JOIN device_ownership o ON o.device_id=d.id
+                       WHERE d.node_id=%s ORDER BY d.slot""", (node['id'],))
+        node['devices'] = [dict(slot=d['slot'], status=device_status(d, stale_seconds=settings.stale_seconds),
+                                quality=d['quality'], health=d['health'], ai_core=d['ai_core'],
+                                memory_used=d['memory_used'], process_complete=bool(d['process_complete']),
+                                sampled_at=d['sampled_at'], allocated=bool(d.get('request_id')))
+                           for d in cards]
+        node['available_cards'] = sum(d['status'] == 'available' for d in node['devices'])
+        node['whole_node_available'] = bool(cards) and node['available_cards'] == len(cards)
     print(json.dumps({'env_file': str(config), 'known_hosts': str(settings.known_hosts.resolve()),
                       'known_hosts_exists': settings.known_hosts.is_file(), 'nodes': nodes},
                      ensure_ascii=False, default=str, indent=2))

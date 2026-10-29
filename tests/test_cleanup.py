@@ -43,15 +43,15 @@ class CleanupTests(unittest.TestCase):
                     process_complete=True,processes=[],sampled_at=now(),ai_core=0,memory_used=3*1024**3,
                     baseline_bytes=3*1024**3,baseline_confirmed=True),**overrides)
 
-    def test_confirmed_ascend_memory_jitter_has_bounded_tolerance(self):
+    def test_ascend_resident_memory_alone_is_not_a_workload(self):
         baseline=3*1024**3
-        for delta,expected in ((0,'available'),(1024**2,'available'),(2*1024**2,'available'),(2*1024**2+1,'external')):
+        for delta,expected in ((0,'available'),(1024**2,'available'),(2*1024**2,'available'),(2*1024**2+1,'available')):
             with self.subTest(delta=delta):
                 self.assertEqual(device_status(self.idle_card(memory_used=baseline+delta)),expected)
 
-    def test_unconfirmed_or_other_adapter_does_not_gain_tolerance(self):
+    def test_ascend_needs_no_baseline_but_other_adapter_keeps_memory_guard(self):
         self.assertEqual(idle_memory_limit(self.idle_card(baseline_confirmed=False)),0)
-        self.assertEqual(device_status(self.idle_card(baseline_confirmed=False,memory_used=1)),'external')
+        self.assertEqual(device_status(self.idle_card(baseline_confirmed=False,memory_used=1)),'available')
         self.assertEqual(device_status(self.idle_card(baseline_confirmed=False,memory_used=0)),'available')
         for adapter in ('other',None):
             with self.subTest(adapter=adapter):
@@ -60,17 +60,17 @@ class CleanupTests(unittest.TestCase):
                 self.assertEqual(device_status(card),'external')
 
     def test_memory_tolerance_never_overrides_pid_or_compute_activity(self):
-        for changes in ({'processes':[{'pid':42}]},{'ai_core':1}):
+        for changes in ({'processes':[{'pid':42}]},{'ai_core':1},{'extensions':{'npu_utilization':1}}):
             with self.subTest(changes=changes):
                 self.assertEqual(device_status(self.idle_card(**changes)),'external')
 
-    def test_cleanup_uses_same_memory_limit_and_retains_other_guards(self):
+    def test_cleanup_uses_same_workload_rule_and_retains_other_guards(self):
         baseline=3*1024**3
         cases=[({'memory_used':baseline+2*1024**2},True),
-               ({'memory_used':baseline+2*1024**2+1},False),
-               ({'baseline_confirmed':False},False),
+               ({'memory_used':baseline+2*1024**2+1},True),
+               ({'baseline_confirmed':False},True),
                ({'adapter':'other','memory_used':baseline+1},False),
-               ({'ai_core':1},False),({'processes':device('a')['processes']},False),
+               ({'extensions':{'npu_utilization':1}},False),({'ai_core':1},False),({'processes':device('a')['processes']},False),
                ({'quality':'unknown'},False),({'process_complete':False},False)]
         for changes,expected in cases:
             with self.subTest(changes=changes):
@@ -90,3 +90,15 @@ class CleanupTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class AvailableCapacityTests(unittest.TestCase):
+    def test_unconfirmed_ascend950_whole_node_and_partial_cards(self):
+        cards = [CleanupTests().idle_card(id=str(i), baseline_confirmed=False,
+                 memory_used=(4792+i)*1024**2) for i in range(8)]
+        self.assertEqual(sum(device_status(d) == 'available' for d in cards), 8)
+        cards[0]['processes'] = [{'pid':42}]
+        self.assertEqual(sum(device_status(d) == 'available' for d in cards), 7)
+        cards[1]['request_id'] = 'reserved'
+        cards[2]['process_complete'] = False
+        cards[3]['quality'] = 'unknown'
+        self.assertEqual(sum(device_status(d) == 'available' for d in cards), 4)

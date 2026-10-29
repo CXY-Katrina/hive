@@ -91,3 +91,10 @@ git pull --ff-only
 ```
 
 本次不需要重启 MySQL、NPU 机器或容器，不需要数据库迁移、重新安装 Python 依赖或重建前端。浏览器刷新，等待约 30–60 秒，再使用本文的诊断脚本查看 reason 和 sampled_at。实际项目路径不同请替换路径，API 和 worker 必须使用同一配置。
+
+
+## 无进程、AI Core 为零，但空闲可申请为 0
+
+已在 Ascend950 实机复现：空闲状态仍有约 4.7 GiB 常驻 HBM，旧规则将未登记基线的非零显存全部视为占用。现已统一修正卡状态、分配和释放复核：Ascend 卡使用完整进程清单和计算活动判定，显存非零不单独阻止申请；未知、过期、维护、故障、已有申请仍保持不可分配。
+
+使用上述 `diagnose-node.py --host 节点IP` 可查看各卡状态、`available_cards` 和 `whole_node_available`。更新后重启 API 和 worker，刷新页面；不需要重启 MySQL、NPU 节点或重建前端。
