@@ -447,6 +447,8 @@ Get-Content C:\hive\data\worker.log -Tail 50
 
 ## 10. 更新与排错
 
+SSH 失败但手工登录成功时，使用 [节点 SSH 排查指南](docs/ssh-troubleshooting.md) 中的 `scripts/diagnose-node.py` 读取具体原因并验证 Hive 的实际连接通道。
+
 ### 更新代码
 
 先停止 API/worker，并为当前数据库和配套主密钥保存备份。备份放在仓库外的受控位置，不提交 Git。更新命令：

@@ -1,0 +1,45 @@
+# 节点 SSH 排查
+
+在部署 Hive 的机器上执行，工作目录切到项目目录。以下命令使用同一个虚拟环境和配置文件，不需要把密码写入命令行。
+
+## 读取平台记录的具体错误
+
+```powershell
+Set-Location C:\hive
+git pull --ff-only
+.\.venv\Scripts\python.exe scripts\diagnose-node.py --env-file .env
+```
+
+仅查看某台节点（替换实际 IP）：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\diagnose-node.py --env-file .env --host 192.168.13.159
+```
+
+输出包括节点状态、数据库中保存的 reason、最后采样时间、实际配置与 known_hosts 路径。不输出密码、密钥或连接字符串。若 API/worker 使用其他配置文件，传入相同的 --env-file；进程环境变量仍优先于文件。
+
+## 使用 Hive 实际连接方式验证
+
+```powershell
+.\.venv\Scripts\python.exe scripts\diagnose-node.py --env-file .env --host 192.168.13.159 --probe
+```
+
+使用数据库中的账号与解密后的密码、Hive 的主机公钥校验和 SSHTransport 执行只读标记命令。远端需要 Bash 和 timeout，与采集通道一致。不会修改节点、数据库、主机公钥文件或提交任务。`ssh_and_bash_ok: true` 表示 SSH 与基础命令通道成功，不代表 npu-smi 和完整采集也成功；失败时输出经过 Hive 处理的错误与退出码。不会输出远端原始 stdout/stderr。
+
+## 对比手工 SSH
+
+```powershell
+ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password root@192.168.13.159
+```
+
+非 22 端口添加 `-p 实际端口`，用户也应与纳管配置一致。Hive 不自动加载个人私钥、SSH Agent 或 ~/.ssh/config 中的跳板机设置。
+
+“查看凭据”能显示正确密码，说明该 API 的密码存储与解密基本正常，但不证明服务器接受密码认证；还需确认 worker 使用与 API 相同的配置、主密钥和数据库。
+
+- 主机公钥未登记或变化：按 README 的 SSH 指纹核验流程处理，不关闭校验。
+- 认证失败：检查实际账号、密码认证策略；手工私钥登录成功不能代替此验证。
+- 超时或无法连接：在中心机检查 IP、端口和路由。
+- SSH/Bash 成功但采集失败：查看保存的 reason，继续定位 npu-smi、Ascend 驱动或采集命令。
+- 采样时间持续不更新：确认 worker 已启动且连接同一个数据库。
+
+提供诊断输出即可，不要发送 .env、密码、密钥或完整数据库。不要为排查重新生成 HIVE_SECRET_KEY。
