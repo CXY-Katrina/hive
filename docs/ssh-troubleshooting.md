@@ -67,4 +67,27 @@ NPU ID  Slot ID  Chip ID  Chip Phy-ID  Chip Name
 - 指标和进程表以 NPU ID 为设备索引，布局与当前双芯表不同。
 - 进程表新增 `Process id in container` 列。
 
-截至本记录，尚未完成这一格式的采集适配。不能只替换表头：需要明确逻辑设备编号与物理编号映射，并确认 NPU Util 与 AI Core 的统计语义，再适配指标、进程识别和空闲回收判断。未知数据应继续保持不可分配，不能当成零利用率。检查仅运行只读命令，没有修改驱动、容器或正在运行的业务。
+现已适配并在该机器完整采集验证通过：8 个设备、显存、AI Core 和进程清单均正常解析。AI Core 单独通过 `npu-smi info -t usages -i NPU_ID` 的 `Aicore Usage Rate(%)` 获取，`NPU Util(%)` 另存为扩展指标，不替代 AI Core。当前支持实测单芯片、NPU ID 与 Chip Phy-ID 一致的 Ascend950 格式；重映射或不明确的编号仍拒绝解析。未知数据继续保持不可分配，不能当成零利用率。检查仅运行只读命令，没有修改驱动、容器或业务。
+
+### 更新和重启
+
+在 API 和 worker 各自窗口按 Ctrl+C 停止，再执行：
+
+```powershell
+Set-Location C:\hive
+git pull --ff-only
+```
+
+窗口一重启 API（刷新内存中的采集适配器和指标目录）：
+
+```powershell
+.\.venv\Scripts\python.exe -m hive.cli api --host 0.0.0.0 --port 18000 --env-file C:\hive\.env
+```
+
+窗口二重启 worker（加载新的周期采集逻辑）：
+
+```powershell
+.\.venv\Scripts\python.exe -m hive.cli worker --env-file C:\hive\.env
+```
+
+本次不需要重启 MySQL、NPU 机器或容器，不需要数据库迁移、重新安装 Python 依赖或重建前端。浏览器刷新，等待约 30–60 秒，再使用本文的诊断脚本查看 reason 和 sampled_at。实际项目路径不同请替换路径，API 和 worker 必须使用同一配置。

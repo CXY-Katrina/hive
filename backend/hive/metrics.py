@@ -20,6 +20,7 @@ class Metric:
 class MetricCatalog:
     def __init__(self):
         self._items = {}
+        self.register(Metric("npu_utilization", "NPU 利用率", "%", minimum=0, maximum=100))
         self.register(Metric("ai_core", "AI Core 利用率", "%", minimum=0, maximum=100))
         self.register(Metric("memory_used", "显存已用", "bytes", minimum=0))
         self.register(Metric("memory_total", "显存总量", "bytes", reducer="latest", minimum=0))

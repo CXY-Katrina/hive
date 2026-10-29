@@ -1,0 +1,9 @@
+	NPU ID                         Slot ID                        Chip ID                        Chip Phy-ID                    Chip Name                     
+	0                              0                              0                              0                              Ascend950DT
+	1                              1                              0                              1                              Ascend950DT
+	2                              2                              0                              2                              Ascend950DT
+	3                              3                              0                              3                              Ascend950DT
+	4                              4                              0                              4                              Ascend950DT
+	5                              5                              0                              5                              Ascend950DT
+	6                              6                              0                              6                              Ascend950DT
+	7                              7                              0                              7                              Ascend950DT

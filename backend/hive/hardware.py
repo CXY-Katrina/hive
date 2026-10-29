@@ -59,6 +59,22 @@ def required(data, name):
 
 
 def parse_mapping(text):
+    modern = re.search(r'^\s*NPU ID\s+Slot ID\s+Chip ID\s+Chip Phy-ID\s+Chip Name\s*$', text, re.M)
+    if modern:
+        rows = []
+        for line in text.splitlines():
+            if not line.strip() or line.strip() == modern.group().strip():
+                continue
+            match = re.fullmatch(r'\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(Ascend950\S*)\s*', line)
+            if not match:
+                raise ValueError('Unsupported Ascend950 mapping row')
+            npu, slot, chip, physical, name = match.groups()
+            # This verified layout has one chip per NPU and no logical-ID column.
+            # Reject remapped identities until their runtime mapping is verified.
+            if chip != '0' or npu != physical:
+                raise ValueError('Unverified Ascend950 remapped device identity')
+            rows.append(f'{npu} {chip} {npu} {physical} {name}')
+        return parse_mapping('NPU ID Chip ID Chip Logic ID Chip Phy-ID Chip Name\n' + '\n'.join(rows))
     header = re.search(r'^\s*NPU\s+ID\s+Chip\s+ID\s+Chip\s+Logic\s+ID\s+(Chip\s+Phy-ID\s+)?Chip\s+Name\s*$', text, re.M)
     if not header:
         raise ValueError('Unsupported device mapping header')
@@ -89,9 +105,10 @@ def parse_mapping(text):
 
 def parse_info(text, mapping):
     """Parse standard two-line device rows and the explicitly terminated PID table."""
-    if 'HBM-Usage(MB)' not in text or 'AICore(%)' not in text:
+    modern = bool(re.search(r'\|\s*NPU ID\s*\|\s*Name\s*\|\s*Health\s*\|', text))
+    if 'HBM-Usage(MB)' not in text or ('AICore(%)' not in text and not (modern and 'NPU Util(%)' in text)):
         raise ValueError('Unsupported metric table (HBM/AICore columns required)')
-    marker = re.search(r'^\s*\|\s*NPU\s+Chip\s*\|\s*Process id\s*\|', text, re.M | re.I)
+    marker = re.search(r'^\s*\|\s*NPU\s+(?:Chip|ID)\s*\|\s*Process id\s*\|', text, re.M | re.I)
     if not marker:
         raise ValueError('Missing process table')
     metric_text, process_text = text[:marker.start()], text[marker.start():]
@@ -104,6 +121,17 @@ def parse_info(text, mapping):
         # The current layout has two numeric identifiers in a metric row; inspect
         # Bus-Id before looking for the NPU/name row to avoid treating Phy-ID as a name.
         is_metric = bool(re.fullmatch(r'[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.\d', cells[1]))
+        if modern:
+            if len(cells) != 4:
+                continue
+            if re.fullmatch(r'\d+', cells[0]):
+                if not cells[1].startswith('Ascend950'):
+                    raise ValueError('Unsupported NPU-ID metric device')
+                current_npu, health = cells[0], cells[2].lower()
+                continue
+            is_metric = not cells[0] and not cells[1] and bool(re.fullmatch(r'NA|[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.\d', cells[2]))
+            if is_metric:
+                cells = ['0', cells[2], cells[3]]
         head = re.fullmatch(r'(\d+)\s+\S.*', cells[0])
         if head and not is_metric:
             current_npu = head.group(1)
@@ -132,12 +160,16 @@ def parse_info(text, mapping):
             raise ValueError('Invalid metric values or duplicate device')
         samples[key] = DeviceSample(f'{key[0]}:{key[1]}', key[0], key[1], mapping[key],
                                     total, used, ai, 'OK' if health == 'ok' else 'FAULT' if health in ('fault', 'alarm', 'critical') else 'unknown')
+    if modern:
+        for sample in samples.values():
+            sample.extensions['npu_utilization'] = sample.ai_core
+            sample.ai_core = None  # Obtain actual AI Core usage from the usages command.
     if set(samples) != set(mapping):
         raise ValueError('Missing devices in metric table')
     lines = [line.strip() for line in process_text.splitlines() if line.strip()]
     if not lines or not re.fullmatch(r'\+[+\-=]+\+', lines[-1]):
         raise ValueError('Unterminated process table')
-    process_header = re.fullmatch(r'\|\s*NPU\s+Chip\s*\|\s*Process id\s*\|\s*Process name\s*\|\s*Process memory\(MB\)\s*\|(\s*Process id in container\s*\|)?', lines[0], re.I)
+    process_header = re.fullmatch(r'\|\s*NPU\s+(?:Chip|ID)\s*\|\s*Process id\s*\|\s*Process name\s*\|\s*Process memory\(MB\)\s*\|(\s*Process id in container\s*\|)?', lines[0], re.I)
     if not process_header:
         raise ValueError('Unsupported process table header')
     has_container_pid = bool(process_header.group(1))
@@ -155,13 +187,19 @@ def parse_info(text, mapping):
             empty_npus.add(empty_match.group(1))
             continue
         pattern = r'\|\s*(\d+)\s+(\d+)\s*\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\|'
+        if modern:
+            pattern = pattern.replace(r'(\d+)\s+(\d+)', r'(\d+)')
         if has_container_pid:
             # Only the host PID is used for /proc, Docker membership, and cleanup.
             pattern += r'\s*(?:\d+|NA|N/A|-)\s*\|'
         match = re.fullmatch(pattern, line)
         if not match:
             raise ValueError('Unknown or truncated process row')
-        npu, chip, pid, name, _ = match.groups()
+        if modern:
+            npu, pid, name, _ = match.groups()
+            chip = '0'
+        else:
+            npu, chip, pid, name, _ = match.groups()
         occupied_npus.add(npu)
         if (npu, chip) not in mapping or int(pid) <= 1:
             raise ValueError('Invalid process device or PID')
@@ -243,6 +281,21 @@ class AscendAdapter:
                 raise ValueError('Node rebooted during sampling')
             mapping = parse_mapping(required(data, 'mapping'))
             samples, pids = parse_info(required(data, 'info'), mapping)
+            if any(sample.ai_core is None for sample in samples.values()):
+                commands = '\n'.join(f'emit usage_{int(npu)} timeout 8 npu-smi info -t usages -i {int(npu)}' for npu, _ in samples)
+                usage_result = self.transport.run(node, PREAMBLE + "emit boot cat /proc/sys/kernel/random/boot_id\n" + commands + "\nemit boot_after cat /proc/sys/kernel/random/boot_id\nprintf 'HIVE_END\\n'\n", timeout=min(3600, 10 * len(samples)))
+                if usage_result.code:
+                    raise ValueError('AI Core usage collection failed')
+                usages = sections(usage_result.stdout)
+                if required(usages, 'boot').strip() != boot or required(usages, 'boot_after').strip() != boot:
+                    raise ValueError('Node rebooted during AI Core sampling')
+                for (npu, _), sample in samples.items():
+                    usage = required(usages, f'usage_{int(npu)}')
+                    identity = re.findall(r'^\s*NPU ID\s*:\s*(\d+)\s*$', usage, re.M)
+                    values = re.findall(r'^\s*Aicore Usage Rate\(%\)\s*:\s*(\d+(?:\.\d+)?)\s*$', usage, re.M | re.I)
+                    if identity != [npu] or len(values) != 1 or not 0 <= float(values[0]) <= 100:
+                        raise ValueError('Missing or invalid AI Core usage')
+                    sample.ai_core = float(values[0])
             expected = {device['slot'] for device in node.get('devices', [])}
             if expected - {sample.slot for sample in samples.values()}:
                 raise ValueError('Previously registered devices missing from enumeration')
