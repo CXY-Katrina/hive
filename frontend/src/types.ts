@@ -32,7 +32,7 @@ export interface NodeInfo {
   status: string; reason?: string; maintenance: boolean; sampled_at?: string; boot_id?: string; metadata: NodeMetadata;
   mounts: Mount[]; devices: Device[]; probe_requested?: boolean;
 }
-export interface ResourceSpec { generation: string; model: string; mode: 'partial' | 'whole'; machine_count: number; cards_per_node: number; min_memory_gib: number; require_interconnect: boolean; queue: boolean; wait_minutes: number; note?: string }
+export interface ResourceSpec { target_node_ids?: string[]; generation: string; model: string; mode: 'partial' | 'whole'; machine_count: number; cards_per_node: number; min_memory_gib: number; require_interconnect: boolean; queue: boolean; wait_minutes: number; note?: string }
 export interface Assignment { device_id?: ID; node_id?: ID; host: string; slot?: number | string; slots?: string[]; node_name?: string; result?: {exit_code?: number}; status?: string }
 export interface ResourceRequest { id: ID; owner_name: string; purpose: string; status: string; reason?: string; spec: ResourceSpec; created_at: string; protected_until?: string; devices: Assignment[] }
 export interface Task { id: ID; name: string; owner_name: string; status: string; reason?: string; request_id?: ID; created_at: string; started_at?: string; finished_at?: string; ended_at?: string; exit_code?: number; spec: { resource?: ResourceSpec; timeout_seconds?: number }; nodes: Assignment[] }
